@@ -32,7 +32,7 @@
 | `paddleocr-vl-1.5` | `PaddleOCR-VL-1.5` | OCR, spotting, table/layout extraction | vLLM, 0.9B급 |
 | `got-ocr` | `GOT-OCR-2.0-hf` | hard crop OCR fallback | transformers 직접 추론 |
 
-근거: [`docs/project_progress/01_vlm_deployment.md`](../project_progress/01_vlm_deployment.md), [`deploy_vlms/config/models/`](../../deploy_vlms/config/models/), [`docs/setup_vlms/04-operations-integration-and-benchmarking.md`](./04-operations-integration-and-benchmarking.md).
+근거: `auto_recipe_creator/docs/project_progress/01_vlm_deployment.md`, [`deploy_vlms/config/models/`](../deploy_vlms/config/models/), [`docs/setup_vlms/04-operations-integration-and-benchmarking.md`](./04-operations-integration-and-benchmarking.md).
 
 ## 3. 후보 요약
 
@@ -235,7 +235,7 @@ InternVL3.5는 1B부터 241B-A28B까지 넓은 family를 제공하고 CascadeRL�
 
 ## 9. Sources
 
-- Current repo baseline: [`docs/project_progress/01_vlm_deployment.md`](../project_progress/01_vlm_deployment.md), [`deploy_vlms/config/models/`](../../deploy_vlms/config/models/), [`docs/setup_vlms/04-operations-integration-and-benchmarking.md`](./04-operations-integration-and-benchmarking.md)
+- Current repo baseline: `auto_recipe_creator/docs/project_progress/01_vlm_deployment.md`, [`deploy_vlms/config/models/`](../deploy_vlms/config/models/), [`docs/setup_vlms/04-operations-integration-and-benchmarking.md`](./04-operations-integration-and-benchmarking.md)
 - UI-Venus 1.5: [`inclusionAI/UI-Venus-1.5-8B`](https://huggingface.co/inclusionAI/UI-Venus-1.5-8B), [`UI-Venus collection`](https://huggingface.co/collections/inclusionAI/ui-venus)
 - VISTA: [`inclusionAI/VISTA-9B`](https://huggingface.co/inclusionAI/VISTA-9B), [`inclusionAI/VISTA-4B`](https://huggingface.co/inclusionAI/VISTA-4B)
 - UI-TARS: [`ByteDance-Seed/UI-TARS-1.5-7B`](https://huggingface.co/ByteDance-Seed/UI-TARS-1.5-7B)
