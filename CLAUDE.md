@@ -126,6 +126,22 @@ forwarding**, so it cannot collide with the upstream `API_KEY` the proxy injects
 discovered `.env` files, live-probes each upstream `/v1/models`, and reports `serving_mismatch`
 when the served model name disagrees with what was configured.
 
+### Dashboard at `/` and GPU telemetry
+
+`flask_api/gpu_status.py` shells to `nvidia-smi --query-gpu=... --format=csv,noheader,nounits`
+(same pattern as `serve_vlm.detect_gpu_total_memory_gib`). A missing or failing `nvidia-smi` is a
+**state, not an error** — it returns `{"available": false, "reason": ...}` so the page still renders
+on a laptop. `[N/A]` fields become `None`, never `0`, so a graph never shows a confident wrong value.
+
+`flask_api/dashboard.py` serves `templates/dashboard.html` at `/` — registered by
+`register_dashboard(app)`, separate from `register_flask_api(app)` because the latter's contract is
+"everything under `/api`". The page polls **`/api/health` only**: that one payload already carries
+`vlm_serve`, `gpu_status`, and `model_upload`, so no dashboard-specific endpoint exists.
+
+**The page must stay dependency-free** — the office is offline, so a CDN link renders a half-dead
+page. All CSS/JS is inline and `tests/test_dashboard.py` fails the build if a `src="http`/`href="http`
+sneaks in. Models are grouped by the `gpu_id` that `vlm_serve` reads from `config/models/*.env`.
+
 ### flask_api/model_upload/ — resumable chunked upload
 
 Three layers, deliberately: `store.py` (filesystem + resume state, **knows nothing about HTTP**),

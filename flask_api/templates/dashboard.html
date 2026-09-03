@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VLM 서빙 상태</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%2358a6ff'/><rect x='8' y='9' width='16' height='14' rx='2' fill='%230f1115'/><rect x='11' y='12' width='10' height='3' fill='%2358a6ff'/><rect x='11' y='17' width='6' height='3' fill='%233fb950'/></svg>">
+<!--
+  오피스가 오프라인이라 외부 CDN 을 쓰지 않는다. CSS/JS 전부 이 파일 안에 있다.
+  폴링 대상은 /api/health 하나뿐이다 - 그 응답에 GPU 와 모델 상태가 모두 들어 있다.
+-->
+<style>
+  :root {
+    --bg: #0f1115; --panel: #171a21; --line: #262b36;
+    --fg: #e6e9ef; --muted: #8b93a7;
+    --ok: #3fb950; --warn: #d29922; --bad: #f85149; --idle: #6e7681;
+    --bar: #21262d; --accent: #58a6ff;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #f6f7f9; --panel: #ffffff; --line: #e2e5ea;
+      --fg: #1c2128; --muted: #6b7280;
+      --bar: #eaecef;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 24px;
+    background: var(--bg); color: var(--fg);
+    font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans KR", sans-serif;
+  }
+  header { display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap; margin-bottom: 20px; }
+  h1 { font-size: 18px; margin: 0; font-weight: 600; }
+  h2 { font-size: 13px; margin: 24px 0 10px; color: var(--muted); font-weight: 600;
+       text-transform: uppercase; letter-spacing: .06em; }
+  .meta { color: var(--muted); font-size: 12px; margin-left: auto; }
+  .grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; }
+  .card-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 12px; }
+  .card-title { font-weight: 600; }
+  .card-sub { color: var(--muted); font-size: 12px; }
+  .row { display: flex; justify-content: space-between; font-size: 12px; margin: 8px 0 4px; }
+  .row .label { color: var(--muted); }
+  .bar { height: 6px; background: var(--bar); border-radius: 3px; overflow: hidden; }
+  .bar > i { display: block; height: 100%; background: var(--accent); transition: width .3s; }
+  .bar > i.warn { background: var(--warn); }
+  .bar > i.bad  { background: var(--bad); }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); font-size: 13px; }
+  th { color: var(--muted); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; }
+  td.num { font-variant-numeric: tabular-nums; }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 7px; }
+  .s-serving .dot { background: var(--ok); }
+  .s-unreachable .dot { background: var(--bad); }
+  .s-serving_mismatch .dot, .s-error .dot, .s-invalid_response .dot { background: var(--warn); }
+  .s-not_proxy_managed .dot { background: var(--idle); }
+  .note { background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--warn);
+          border-radius: 6px; padding: 12px 14px; color: var(--muted); }
+  .note.bad { border-left-color: var(--bad); }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>VLM 서빙 상태</h1>
+  <span class="meta" id="meta">불러오는 중…</span>
+</header>
+
+<h2>GPU</h2>
+<div id="gpu"></div>
+
+<h2>모델</h2>
+<div id="models"></div>
+
+<script>
+"use strict";
+
+var POLL_MS = 5000;
+
+function esc(v) {
+  return String(v == null ? "" : v).replace(/[&<>"]/g, function (c) {
+    return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c];
+  });
+}
+function num(v, digits) {
+  return v == null ? "—" : Number(v).toFixed(digits == null ? 0 : digits);
+}
+// 사용률이 높을수록 막대 색을 올린다. GPU 는 원래 꽉 채워 쓰는 물건이라
+// 임계값을 낮게 잡으면 늘 빨간 화면이 된다 - 85/95 로 둔다.
+function level(pct) { return pct == null ? "" : pct >= 95 ? "bad" : pct >= 85 ? "warn" : ""; }
+
+function bar(label, value, pct, digits) {
+  var p = pct == null ? 0 : Math.max(0, Math.min(100, pct));
+  return '<div class="row"><span class="label">' + esc(label) + "</span><span>" + value + "</span></div>" +
+         '<div class="bar"><i class="' + level(pct) + '" style="width:' + p + '%"></i></div>';
+}
+
+function renderGpu(gpu) {
+  var el = document.getElementById("gpu");
+  if (!gpu || !gpu.available) {
+    var why = gpu && gpu.reason ? gpu.reason : "GPU 정보를 읽지 못했다";
+    el.innerHTML = '<div class="note">GPU 정보 없음 — <code>' + esc(why) + "</code>" +
+      "<br>이 페이지를 GPU 서버가 아닌 곳에서 열면 정상이다.</div>";
+    return;
+  }
+  el.className = "grid";
+  el.innerHTML = gpu.gpus.map(function (g) {
+    var memText = num(g.memory_used_mib) + " / " + num(g.memory_total_mib) + " MiB";
+    var powText = g.power_draw_w == null ? "—"
+      : num(g.power_draw_w) + (g.power_limit_w == null ? "" : " / " + num(g.power_limit_w)) + " W";
+    var powPct = (g.power_draw_w != null && g.power_limit_w) ? g.power_draw_w / g.power_limit_w * 100 : null;
+    return '<div class="card">' +
+      '<div class="card-head"><span class="card-title">GPU ' + esc(g.index) + "</span>" +
+      '<span class="card-sub">' + esc(g.name) + "</span></div>" +
+      bar("메모리 " + (g.memory_used_percent == null ? "" : g.memory_used_percent + "%"), memText, g.memory_used_percent) +
+      bar("사용률", num(g.utilization_percent) + " %", g.utilization_percent) +
+      bar("전력", powText, powPct) +
+      '<div class="row"><span class="label">온도</span><span>' + num(g.temperature_c) + " °C</span></div>" +
+      "</div>";
+  }).join("");
+}
+
+function renderModels(vlm) {
+  var el = document.getElementById("models");
+  var rows = (vlm && vlm.vlm_statuses) || [];
+  if (!rows.length) {
+    el.innerHTML = '<div class="note">등록된 모델이 없다.</div>';
+    return;
+  }
+  el.className = "card";
+  el.innerHTML =
+    "<table><thead><tr><th>상태</th><th>서비스</th><th>모델</th><th>GPU</th><th>포트</th><th>업스트림</th></tr></thead><tbody>" +
+    rows.map(function (m) {
+      return '<tr class="s-' + esc(m.health_status) + '">' +
+        '<td><span class="dot"></span>' + esc(m.health_status) + "</td>" +
+        "<td>" + esc(m.service) + "</td>" +
+        "<td>" + esc(m.display_name) + "</td>" +
+        '<td class="num">' + esc(m.gpu_id == null ? "—" : m.gpu_id) + "</td>" +
+        '<td class="num">' + esc(m.upstream_port == null ? "—" : m.upstream_port) + "</td>" +
+        "<td><code>" + esc(m.upstream_base_url || "—") + "</code></td>" +
+        "</tr>";
+    }).join("") + "</tbody></table>";
+}
+
+function renderMeta(payload, error) {
+  var meta = document.getElementById("meta");
+  var when = new Date().toLocaleTimeString("ko-KR");
+  if (error) {
+    meta.textContent = when + " · 갱신 실패: " + error;
+    return;
+  }
+  var serving = (payload.vlm_serve && payload.vlm_serve.serving_now) || [];
+  var total = (payload.vlm_serve && payload.vlm_serve.vlm_statuses || []).length;
+  meta.textContent = when + " · 서빙 중 " + serving.length + "/" + total +
+    (payload.model_upload && payload.model_upload.auth_required ? " · 업로드 인증 on" : "");
+}
+
+function tick() {
+  fetch("/api/health", { cache: "no-store" })
+    .then(function (r) {
+      if (!r.ok) { throw new Error("HTTP " + r.status); }
+      return r.json();
+    })
+    .then(function (payload) {
+      renderGpu(payload.gpu_status);
+      renderModels(payload.vlm_serve);
+      renderMeta(payload, null);
+    })
+    .catch(function (err) {
+      renderMeta({}, err.message);
+      document.getElementById("gpu").innerHTML =
+        '<div class="note bad">/api/health 에 닿지 못했다 — <code>' + esc(err.message) + "</code></div>";
+      document.getElementById("gpu").className = "";
+    });
+}
+
+tick();
+setInterval(tick, POLL_MS);
+</script>
+</body>
+</html>

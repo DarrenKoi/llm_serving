@@ -10,6 +10,8 @@ from .model_upload.config import (
     build_model_upload_health_payload,
     register_model_upload_routes,
 )
+from .dashboard import register_dashboard
+from .gpu_status import build_gpu_status_payload, register_gpu_status_routes
 from .vlm_serve import build_vlm_health_payload, register_vlm_serve_routes
 
 DEFAULT_URL_PREFIX = "/api"
@@ -27,12 +29,14 @@ def health():
             "base_path": "/api",
             "vlm_serve": build_vlm_health_payload(),
             "model_upload": build_model_upload_health_payload(),
+            "gpu_status": build_gpu_status_payload(),
         }
     )
 
 
 register_vlm_serve_routes(api_blueprint)
 register_model_upload_routes(api_blueprint)
+register_gpu_status_routes(api_blueprint)
 
 
 def register_flask_api(app: Flask, url_prefix: str = DEFAULT_URL_PREFIX) -> None:
@@ -40,4 +44,9 @@ def register_flask_api(app: Flask, url_prefix: str = DEFAULT_URL_PREFIX) -> None
     app.register_blueprint(api_blueprint, url_prefix=url_prefix)
 
 
-__all__ = ["api_blueprint", "register_flask_api", "DEFAULT_URL_PREFIX"]
+__all__ = [
+    "api_blueprint",
+    "register_dashboard",
+    "register_flask_api",
+    "DEFAULT_URL_PREFIX",
+]

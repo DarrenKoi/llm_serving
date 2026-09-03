@@ -20,3 +20,6 @@ venv/
 # 비밀값 전용. 설정은 config/*.env 와 스크립트 상단 상수로 간다.
 .env
 
+
+# Playwright MCP 산출물 (스냅샷/콘솔 로그)
+.playwright-mcp/
