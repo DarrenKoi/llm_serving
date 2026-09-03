@@ -18,6 +18,7 @@ Python으로 동일한 기능을 수행한다.
   MODEL_ENV=${CONFIG_ROOT}/models/<instance>.env
 
 참고:
+  - 저장소 루트 .env 가 있으면 가장 먼저 읽는다 (MODEL_ROOT 등 사이트 값).
   - common.env를 먼저 읽고 model env를 나중에 읽는다.
   - 따라서 TENSOR_PARALLEL_SIZE, GPU_MEMORY_UTILIZATION, MAX_NUM_SEQS,
     EXTRA_VLLM_ARGS 같은 키도 instance별로 override할 수 있다.
@@ -69,8 +70,8 @@ def require_dir(path: str) -> None:
         fail(f"Required directory not found: {path}")
 
 
-def load_env_file(path: str) -> None:
-    """단순 KEY=VALUE .env 파일을 os.environ에 로드한다."""
+def load_env_file(path: str, override: bool = True) -> None:
+    """단순 KEY=VALUE .env 파일을 os.environ에 로드한다. override=False 면 이미 있는 키는 둔다."""
     with open(path, "r") as f:
         for line in f:
             line = line.strip()
@@ -88,7 +89,8 @@ def load_env_file(path: str) -> None:
             # 경로를 .env 한 곳에서만 채우고 config 는 공개본 그대로 두기 위한 것.
             # 못 펼치면 리터럴로 남고, MODEL_ID 의 isabs 검사가 그대로 잡아준다.
             value = os.path.expandvars(value)
-            os.environ[key] = value
+            if override or key not in os.environ:
+                os.environ[key] = value
 
 
 def env(key: str, default: str = "") -> str:
@@ -401,6 +403,15 @@ def main() -> None:
 
     os.environ["DEPLOY_VLMS_ROOT"] = deploy_vlms_root
     os.environ["CONFIG_ROOT"] = config_root
+
+    # 저장소 루트 .env (MODEL_ROOT 등 사이트 값) 를 config 보다 먼저 읽는다. 아래
+    # common.env 의 ALLOWED_MODEL_ROOT=${MODEL_ROOT} 와 model env 의 MODEL_ID 가
+    # 여기서 펼쳐진다. start_all / start_model 은 이 스크립트를 그대로 부르므로
+    # 셸에서 export 하지 않아도 된다. 이미 export 된 키는 둔다(셸이 .env 보다 우선,
+    # index.py 와 같은 규칙). 없으면 건너뛴다(공개 체크아웃).
+    dotenv = os.path.join(deploy_vlms_root, "..", ".env")
+    if os.path.isfile(dotenv):
+        load_env_file(dotenv, override=False)
 
     # env 파일 로드
     require_env_file(common_env)

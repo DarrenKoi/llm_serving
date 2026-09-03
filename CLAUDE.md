@@ -19,9 +19,8 @@ indexing). Do not repopulate them without being asked. Their content is recovera
 ```bash
 pip install -e ".[dev]"
 
-# Nothing auto-loads .env — export it before running anything:
+# serve_vlm.py and index.py both read .env themselves; a shell export wins over it:
 cp .env_example .env      # then fill in MODEL_ROOT and the tokens
-set -a; . ./.env; set +a
 ```
 
 **pip is the toolchain here, not `uv`** — it is the company standard and `uv` has known issues in
@@ -60,9 +59,11 @@ probe reads at runtime to discover what should be running.
 `serve_vlm.py <instance>` is the core. It never imports vLLM; it builds an argv and calls
 `os.execvpe`, replacing itself with `vllm serve`. The resolution chain:
 
-1. Load `config/common.env`, then `config/models/<instance>.env`.
+1. Load the repo-root `.env` if present, then `config/common.env`, then
+   `config/models/<instance>.env`.
 2. `load_env_file` **assigns unconditionally** (`os.environ[key] = value`), so config files win
-   over the shell. Exporting `PORT=…` does *not* override a model's config.
+   over the shell. Exporting `PORT=…` does *not* override a model's config. The repo-root
+   `.env` is the exception: it is loaded with `override=False`, so a shell export beats it.
 3. Values are `os.path.expandvars`-expanded, so `${MODEL_ROOT}` from `.env` flows in. This is the
    only channel for shell → config. An unresolved var stays literal and trips the `MODEL_ID`
    `isabs` check rather than silently becoming a relative path.
@@ -88,7 +89,9 @@ comments explaining *why* each value is what it is — read them before changing
 
 ### flask_api/ — reverse proxy, mounted at `/api`
 
-`index.py` (WSGI target, exposes `application`) → `web_main.py` (builds `app`) →
+`index.py` (WSGI target, exposes `application`; loads the repo-root `.env` **before** importing
+`web_main`, because `model_upload` snapshots its config at `flask_api` import time) →
+`web_main.py` (builds `app`) →
 `register_flask_api(app)`. `web_main.py` does nothing but mount the package; put routes in
 `flask_api/`, never in `web_main.py`. Locally: `python index.py` serves on :5000.
 
