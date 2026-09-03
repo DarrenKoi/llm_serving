@@ -225,6 +225,17 @@ def main() -> None:
             succeeded.append(instance)
         else:
             failed.append(instance)
+            # 준비 실패인데 프로세스가 **아직 살아 있으면** 여전히 로딩 중이다
+            # (READY_TIMEOUT_SEC 초과). 그대로 다음 모델로 넘어가면 로딩 최대
+            # 구간이 겹치는데, 그건 이 스크립트가 통째로 막으려던 바로 그 상황이다
+            # - 호스트 RAM 16GB 에 swap 이 없어 OOM killer 가 아무나 하나 죽인다.
+            # 그래서 넘어가기 전에 내린다. 이미 죽었으면 stop 은 할 일이 없다.
+            if pid and process_alive(pid):
+                warn(f"{instance}: 준비되지 않았는데 아직 살아 있다 - RAM 구간이 겹치지 않도록 내린다")
+                try:
+                    stop_if_already_running(instance)
+                except SystemExit:
+                    warn(f"{instance}: 정리 실패. 남은 모델을 띄우기 전에 직접 확인할 것")
 
     # 결과 요약
     log("=" * 60)
