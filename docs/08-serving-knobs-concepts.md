@@ -114,7 +114,7 @@ vLLM 2026-04-22 분석:
 커지면(= 컨텍스트가 길어지면) FP32 누산 정밀도를 잃는다. H200 이 Hopper 이고 대략
 **100k 토큰 이상**에서 발현된다. two-level accumulation
 (`flash-attention#104`, +#96/#91)으로 89% 까지 복구되어 mainline 에 들어갔지만
-**이 서버의 vLLM 0.19.1 에 그 수정이 들어있는지는 확인되지 않았다.**
+**이 서버의 vLLM 0.28.0 에 그 수정이 들어있는지는 확인되지 않았다.**
 
 vLLM 이 제시한 안전/위험 구분:
 
@@ -232,7 +232,7 @@ O(n^2) 이므로 계산해 둔 것을 캐싱한다. 그게 KV cache 다.
 올라 분포가 평평해지므로 logit 에 `~0.1*ln(s)+1` 을 곱해 다시 날카롭게 만든다.
 q/k 스케일링에 접히므로 런타임 비용은 0이다.
 
-vLLM 은 YaRN 을 **네이티브 지원**한다 (플러그인 불필요, 0.19.1 로 충분):
+vLLM 은 YaRN 을 **네이티브 지원**한다 (플러그인 불필요, 0.17+ 면 충분):
 
 ```
 --hf-overrides '{"rope_parameters":{"rope_type":"yarn","factor":4.0,"original_max_position_embeddings":262144}}'
