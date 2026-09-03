@@ -10,6 +10,7 @@ import logging
 import os
 import time
 from dataclasses import dataclass
+from hmac import compare_digest
 
 import requests
 from flask import Blueprint, Response, jsonify, request
@@ -77,6 +78,27 @@ def _upstream_timeout() -> tuple[float, float]:
     return connect_timeout, read_timeout
 
 
+def _shared_token() -> str:
+    """팀 공용 토큰. 비어 있으면 인증 없이 열린다 (model_upload 와 같은 규약)."""
+    return os.environ.get("VLM_SERVE_TOKEN", "").strip()
+
+
+def _presented_token() -> str:
+    """호출자가 제시한 토큰을 꺼낸다.
+
+    X-VLM-Token 을 먼저 보고, 없으면 Authorization: Bearer 를 본다.
+    OpenAI 클라이언트는 api_key 를 Authorization 으로 보내므로 둘 다 받아야
+    팀원이 표준 클라이언트를 그대로 쓸 수 있다.
+    """
+    provided = request.headers.get("X-VLM-Token", "").strip()
+    if provided:
+        return provided
+    authorization = request.headers.get("Authorization", "").strip()
+    if authorization.lower().startswith("bearer "):
+        return authorization[7:].strip()
+    return ""
+
+
 def _prepare_upstream_body(
     config: VLMServiceConfig,
     upstream_path: str,
@@ -132,6 +154,11 @@ def _build_upstream_headers() -> dict[str, str]:
         "transfer-encoding",
         "accept-encoding",
     }
+    # 공용 토큰을 쓰는 중이면 클라이언트의 Authorization 은 **이 프록시에게** 온 것이다.
+    # 그대로 넘기면 vLLM 이 API_KEY 를 켰을 때 엉뚱한 키가 도착해 401 이 난다.
+    # 여기서 지우면 아래 주입 로직이 upstream 용 키를 제대로 채운다.
+    if _shared_token():
+        blocked_headers.add("authorization")
     headers = {
         key: value
         for key, value in request.headers.items()
@@ -231,6 +258,26 @@ def _proxy_request(config: VLMServiceConfig, upstream_path: str):
 def create_vlm_service_blueprint(config: VLMServiceConfig) -> Blueprint:
     """VLM 서비스 proxy blueprint 를 생성한다."""
     service_blueprint = Blueprint(config.blueprint_name, __name__)
+
+    @service_blueprint.before_request
+    def _require_shared_token():
+        """프록시 호출에 공용 토큰을 요구한다. home / health 는 열어 둔다.
+
+        VLM_SERVE_TOKEN 이 비어 있으면 아무것도 하지 않는다 - 토큰을 설정하는
+        순간에만 켜지므로 기존 배포가 조용히 막히지 않는다.
+        """
+        token = _shared_token()
+        if not token:
+            return None
+        # endpoint 는 "api.vlm_serve.mai_ui_vlm.proxy_v1" 형태라 마지막 조각만 본다.
+        if (request.endpoint or "").rsplit(".", 1)[-1] in {"home", "health"}:
+            return None
+        if not compare_digest(_presented_token(), token):
+            return (
+                jsonify({"error": "missing or invalid VLM token", "code": "Unauthorized"}),
+                401,
+            )
+        return None
 
     @service_blueprint.route("/", methods=["GET"])
     def home():

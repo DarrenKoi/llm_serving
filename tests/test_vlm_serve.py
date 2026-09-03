@@ -320,3 +320,116 @@ def test_get_vlm_logger_reuses_existing_file_handler(monkeypatch, tmp_path):
     ]
 
     assert len(file_handlers) == 1
+
+
+# ── 공용 토큰 인증 (VLM_SERVE_TOKEN) ──────────────────────────────────
+
+
+def _ok_response(*_args, **kwargs):
+    """프록시가 upstream 까지 갔는지 보기 위한 더미."""
+    _CAPTURED.update(kwargs)
+    return DummyResponse(
+        status_code=200,
+        body=json.dumps({"data": [{"id": "mai-ui-8b"}]}).encode("utf-8"),
+    )
+
+
+_CAPTURED: dict[str, object] = {}
+
+
+@pytest.fixture
+def proxy_client(monkeypatch):
+    _CAPTURED.clear()
+    monkeypatch.setattr(
+        "flask_api.vlm_serve.service_template.requests.request", _ok_response
+    )
+    return _create_test_app().test_client()
+
+
+def test_proxy_rejects_call_without_token_when_configured(proxy_client, monkeypatch):
+    monkeypatch.setenv("VLM_SERVE_TOKEN", "team-secret")
+
+    response = proxy_client.get("/api/vlm_serve/mai-ui/v1/models")
+
+    assert response.status_code == 401
+    assert response.get_json()["code"] == "Unauthorized"
+    # upstream 까지 가지 않아야 한다.
+    assert _CAPTURED == {}
+
+
+def test_proxy_rejects_wrong_token(proxy_client, monkeypatch):
+    monkeypatch.setenv("VLM_SERVE_TOKEN", "team-secret")
+
+    response = proxy_client.get(
+        "/api/vlm_serve/mai-ui/v1/models", headers={"X-VLM-Token": "nope"}
+    )
+
+    assert response.status_code == 401
+
+
+def test_proxy_accepts_x_vlm_token(proxy_client, monkeypatch):
+    monkeypatch.setenv("VLM_SERVE_TOKEN", "team-secret")
+
+    response = proxy_client.get(
+        "/api/vlm_serve/mai-ui/v1/models", headers={"X-VLM-Token": "team-secret"}
+    )
+
+    assert response.status_code == 200
+    assert _CAPTURED["url"] == "http://127.0.0.1:8002/v1/models"
+
+
+def test_proxy_accepts_bearer_token_from_openai_style_client(proxy_client, monkeypatch):
+    """OpenAI 클라이언트는 api_key 를 Authorization 으로 보낸다."""
+    monkeypatch.setenv("VLM_SERVE_TOKEN", "team-secret")
+
+    response = proxy_client.get(
+        "/api/vlm_serve/mai-ui/v1/models",
+        headers={"Authorization": "Bearer team-secret"},
+    )
+
+    assert response.status_code == 200
+
+
+def test_client_token_is_not_forwarded_upstream(proxy_client, monkeypatch):
+    """공용 토큰은 우리 것이다 - upstream 으로 새면 vLLM API_KEY 와 충돌한다."""
+    monkeypatch.setenv("VLM_SERVE_TOKEN", "team-secret")
+    monkeypatch.setenv("VLM_SERVE_UPSTREAM_API_KEY", "internal-key")
+
+    response = proxy_client.get(
+        "/api/vlm_serve/mai-ui/v1/models",
+        headers={"Authorization": "Bearer team-secret"},
+    )
+
+    assert response.status_code == 200
+    # 호출자의 토큰이 아니라 upstream 용 키가 실려 나가야 한다.
+    assert _CAPTURED["headers"]["Authorization"] == "Bearer internal-key"
+
+
+def test_health_and_home_stay_open_when_token_is_set(proxy_client, monkeypatch):
+    monkeypatch.setenv("VLM_SERVE_TOKEN", "team-secret")
+
+    assert proxy_client.get("/api/vlm_serve/mai-ui/").status_code == 200
+    assert proxy_client.get("/api/vlm_serve/mai-ui/health").status_code == 200
+
+
+def test_proxy_stays_open_when_no_token_configured(proxy_client, monkeypatch):
+    """토큰을 안 걸면 기존 동작 그대로여야 한다."""
+    monkeypatch.delenv("VLM_SERVE_TOKEN", raising=False)
+
+    response = proxy_client.get("/api/vlm_serve/mai-ui/v1/models")
+
+    assert response.status_code == 200
+
+
+def test_client_authorization_still_passes_through_when_auth_is_off(
+    proxy_client, monkeypatch
+):
+    """인증을 안 켠 배포에서는 종전처럼 호출자 Authorization 이 그대로 간다."""
+    monkeypatch.delenv("VLM_SERVE_TOKEN", raising=False)
+
+    proxy_client.get(
+        "/api/vlm_serve/mai-ui/v1/models",
+        headers={"Authorization": "Bearer caller-own-key"},
+    )
+
+    assert _CAPTURED["headers"]["Authorization"] == "Bearer caller-own-key"
