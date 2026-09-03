@@ -28,6 +28,9 @@ flask_api/
   __init__.py               register_flask_api(app) — mounts everything under /api
   vlm_serve/                per-model proxy routes + service registry (config.py is the SSOT)
   model_upload/             chunked upload endpoint (store / routes / config, 3 layers)
+
+docs/                       moved from auto_recipe_creator/docs/setup_vlms/
+tests/                      server-side proxy tests (flask_api); model_upload tests live next to their code
 ```
 
 ## Currently served
@@ -74,10 +77,25 @@ uv run pytest
 
 ## Docs
 
-Conceptual and operational docs still live in `auto_recipe_creator/docs/setup_vlms/`:
+Read in this order:
 
-- `08-serving-knobs-concepts.md` — what each knob does (memory split, BF16/FP8, KV cache, context window, RoPE/YaRN, prefix cache)
-- `09-inference-phases-and-capacity.md` — prefill vs decode, TTFT/TPOT, multi-user capacity
-- `01`–`07` — runtime layout, bring-up, OCR services, benchmarking, capacity
+1. [`docs/01-runtime-layout-and-capacity.md`](docs/01-runtime-layout-and-capacity.md) — layout, offline policy, host RAM
+2. [`docs/02-model-bringup-and-special-settings.md`](docs/02-model-bringup-and-special-settings.md) — bring-up order, per-model quirks
+3. [`docs/03-ocr-and-parser-services.md`](docs/03-ocr-and-parser-services.md)
+4. [`docs/04-operations-integration-and-benchmarking.md`](docs/04-operations-integration-and-benchmarking.md)
+5. [`docs/08-serving-knobs-concepts.md`](docs/08-serving-knobs-concepts.md) — **what each knob actually does**: the weights/KV/activations split, BF16 vs FP8, KV cache math, context window, RoPE/YaRN, prefix cache
+6. [`docs/09-inference-phases-and-capacity.md`](docs/09-inference-phases-and-capacity.md) — prefill vs decode, TTFT/TPOT, why batching helps decode but not prefill, multi-user capacity
 
-Move them here when convenient.
+Also `05` (resource comparison), `06` (small-VLM survey), `07` (H100 downgrade capacity),
+and `deploy_vlms/UPLOAD.md` (weight upload runbook).
+
+## Relationship to auto_recipe_creator
+
+`deploy_vlms/` and `flask_api/` still exist in `auto_recipe_creator` as well, because its
+`web_main.py` imports `flask_api` and the GPU server currently deploys from that checkout.
+Until that deployment is repointed here, **the two copies can diverge** — treat
+`auto_recipe_creator` as the live one and this repo as where the split is being staged.
+
+The client side stays there and is not duplicated here: `poc/workflow_3/vlm/flask_vlm.py`
+holds the *client* service registry (slugs, proxy URLs), deliberately separate from the
+server registry in `flask_api/vlm_serve/config.py`.
