@@ -88,6 +88,10 @@ comments explaining *why* each value is what it is — read them before changing
 
 ### flask_api/ — reverse proxy, mounted at `/api`
 
+`index.py` (WSGI target, exposes `application`) → `web_main.py` (builds `app`) →
+`register_flask_api(app)`. `web_main.py` does nothing but mount the package; put routes in
+`flask_api/`, never in `web_main.py`. Locally: `python index.py` serves on :5000.
+
 `register_flask_api(app)` is the only entry point. Blueprints nest:
 `/api` → `/api/vlm_serve` → `/api/vlm_serve/<slug>`, plus `/api/model_upload`.
 
