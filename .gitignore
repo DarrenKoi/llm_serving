@@ -1,0 +1,21 @@
+# vLLM 기동 산출물 (로그/PID). 서버마다 다르고 커지므로 추적하지 않는다.
+deploy_vlms/runtime/
+
+# 업로드 중간 산출물. store 가 목적지 루트 안쪽에 staging 을 두므로
+# (os.replace 원자성 때문에 같은 파일시스템이어야 한다) 여기 걸러둔다.
+deploy_vlms/uploads/
+*.part
+
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+*.egg-info/
+
+.DS_Store
+.idea/
+.vscode/
+
+# 비밀값 전용. 설정은 config/*.env 와 스크립트 상단 상수로 간다.
+.env

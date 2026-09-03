@@ -1,0 +1,28 @@
+[project]
+name = "llm-serving"
+version = "0.1.0"
+description = "vLLM serving stack + Flask API proxy for the in-house GPU server"
+readme = "README.md"
+requires-python = ">=3.10"
+# 서빙 스택은 의존성이 얇다. 이 저장소의 파이썬 코드는 vLLM 을 subprocess 로 띄우고
+# HTTP 로 프록시할 뿐이라 vllm/torch 를 import 하지 않는다 - 따라서 여기 선언하지
+# 않는다(GPU 서버의 전용 환경에 이미 있고, 여기 넣으면 개발 PC 에서 설치가 깨진다).
+dependencies = [
+    "flask>=3.0.0",
+    "requests>=2.31.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["flask_api"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
