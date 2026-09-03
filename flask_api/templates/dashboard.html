@@ -82,14 +82,14 @@ function esc(v) {
     return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c];
   });
 }
-function num(v, digits) {
-  return v == null ? "—" : Number(v).toFixed(digits == null ? 0 : digits);
+function num(v) {
+  return v == null ? "—" : Number(v).toFixed(0);
 }
 // 사용률이 높을수록 막대 색을 올린다. GPU 는 원래 꽉 채워 쓰는 물건이라
 // 임계값을 낮게 잡으면 늘 빨간 화면이 된다 - 85/95 로 둔다.
 function level(pct) { return pct == null ? "" : pct >= 95 ? "bad" : pct >= 85 ? "warn" : ""; }
 
-function bar(label, value, pct, digits) {
+function bar(label, value, pct) {
   var p = pct == null ? 0 : Math.max(0, Math.min(100, pct));
   return '<div class="row"><span class="label">' + esc(label) + "</span><span>" + value + "</span></div>" +
          '<div class="bar"><i class="' + level(pct) + '" style="width:' + p + '%"></i></div>';

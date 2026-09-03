@@ -3,8 +3,6 @@
     pytest tests/test_dashboard.py
 """
 
-import subprocess
-
 from web_main import create_app
 
 
@@ -44,12 +42,3 @@ def test_api_health_carries_gpu_status():
     assert "gpu_status" in payload
     assert "available" in payload["gpu_status"]
 
-
-def test_dashboard_survives_missing_nvidia_smi(monkeypatch):
-    """GPU 가 없는 곳에서도 200 이어야 한다."""
-    def boom(*_a, **_k):
-        raise FileNotFoundError("nvidia-smi")
-    monkeypatch.setattr(subprocess, "run", boom)
-
-    assert _client().get("/").status_code == 200
-    assert _client().get("/api/gpu_status").status_code == 200

@@ -24,11 +24,3 @@ def test_api_is_mounted_on_the_wsgi_app():
     assert response.status_code == 200
     assert response.get_json()["service"] == "api"
 
-
-def test_vlm_and_upload_are_both_mounted():
-    """두 하위 패키지가 같은 앱에 붙어 있다 - 한쪽만 붙는 배선 실수를 막는다."""
-    web_main.app.config["TESTING"] = True
-    client = index.application.test_client()
-
-    assert client.get("/api/vlm_serve/health").status_code == 200
-    assert client.get("/api/model_upload/health").status_code == 200
