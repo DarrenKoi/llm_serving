@@ -129,7 +129,7 @@ vLLM 이 제시한 안전/위험 구분:
 **버전 족보를 파는 것보다 직접 재는 편이 빠르다:**
 
 ```bash
-uv run python deploy_vlms/scripts/check_kv_longctx.py
+python deploy_vlms/scripts/check_kv_longctx.py
 ```
 
 8k(대조군) / 64k / 128k / 200k 를 깊이 3곳씩 재서 결론 하나를 낸다. 짧은 구간은 통과하는데

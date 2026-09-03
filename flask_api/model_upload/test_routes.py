@@ -1,7 +1,7 @@
 """model_upload HTTP 계층 테스트.
 
 Flask test client 로 왕복시킨다 - 실서버 불필요:
-    uv run pytest flask_api/model_upload/test_routes.py
+    pytest flask_api/model_upload/test_routes.py
 """
 
 import hashlib

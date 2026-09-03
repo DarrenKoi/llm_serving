@@ -1,7 +1,7 @@
 """UploadStore 단위 테스트.
 
 실서버/네트워크 없이 Mac 에서 실행된다:
-    uv run pytest flask_api/model_upload/test_store.py
+    pytest flask_api/model_upload/test_store.py
 """
 
 import hashlib

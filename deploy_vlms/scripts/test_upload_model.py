@@ -1,7 +1,7 @@
 """upload_model 클라이언트 테스트.
 
 transport 뒤에 진짜 UploadStore 를 꽂아 HTTP 만 걷어낸 상태로 돌린다.
-    uv run pytest deploy_vlms/scripts/test_upload_model.py
+    pytest deploy_vlms/scripts/test_upload_model.py
 """
 
 import hashlib

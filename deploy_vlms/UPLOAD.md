@@ -16,7 +16,7 @@ code-server 웹 드래그앤드롭이 1GB 근처에서 깨지는 것을 대체�
 ```bash
 MODEL_UPLOAD_ROOT=/path/to/models \
 MODEL_UPLOAD_TOKEN=<공유비밀>                              \
-uv run python index.py     # 또는 기존 WSGI 기동 방식 그대로
+python index.py     # 또는 기존 WSGI 기동 방식 그대로
 ```
 
 | env | 기본값 | 뜻 |
@@ -68,7 +68,7 @@ CHUNK_MB = None              # None = 기본값 32
 ```
 
 ```bash
-uv run python deploy_vlms/scripts/upload_model.py
+python deploy_vlms/scripts/upload_model.py
 ```
 
 우선순위는 **실제 셸 env > 파일 상수 > 코드 기본값**이고, env 에 밀려 무시된 상수는
@@ -122,6 +122,6 @@ curl -X DELETE -H "X-Upload-Token: <비밀>" \
 전부 Mac 에서 실서버 없이 돈다 (마지막 것만 로컬에 임시 서버를 띄운다).
 
 ```bash
-uv run pytest flask_api/model_upload              # 36 (store / routes / 배선)
-uv run pytest deploy_vlms/scripts                 # 21 (클라이언트 루프 + 실제 HTTP 왕복)
+pytest flask_api/model_upload              # 36 (store / routes / 배선)
+pytest deploy_vlms/scripts                 # 44 (클라이언트 루프 + 실제 HTTP 왕복 + 기동 가드)
 ```

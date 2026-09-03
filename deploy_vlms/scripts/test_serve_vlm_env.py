@@ -1,6 +1,6 @@
 """load_env_file 의 ${VAR} 확장 테스트.
 
-    uv run pytest deploy_vlms/scripts/test_serve_vlm_env.py
+    pytest deploy_vlms/scripts/test_serve_vlm_env.py
 """
 
 import importlib.util

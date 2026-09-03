@@ -6,7 +6,7 @@
 그리고 **통과율이 올바른 결론으로 번역되는가**(여기가 틀리면 멀쩡한 설정을 고치거나
 깨진 설정을 놔둔다).
 
-  uv run pytest deploy_vlms/scripts/test_check_kv_longctx.py
+  pytest deploy_vlms/scripts/test_check_kv_longctx.py
 """
 
 import sys

@@ -17,31 +17,32 @@ indexing). Do not repopulate them without being asked. Their content is recovera
 ## Setup and commands
 
 ```bash
-uv sync --extra dev
+pip install -e ".[dev]"
 
 # Nothing auto-loads .env — export it before running anything:
 cp .env_example .env      # then fill in MODEL_ROOT and the tokens
 set -a; . ./.env; set +a
 ```
 
-The **dev laptop uses `uv`; the GPU server uses pip + plain `python`** (vLLM 0.28.0,
-Python 3.11.9). Drop the `uv run` prefix when running anything on the server.
+**pip is the toolchain here, not `uv`** — it is the company standard and `uv` has known issues in
+this environment. Use plain `python` / `pytest`; never add a `uv run` prefix to a command or doc.
+The GPU server runs vLLM 0.28.0 on Python 3.11.9.
 
 ```bash
 # tests — no GPU, no server; these run on a laptop
-uv run pytest
-uv run pytest deploy_vlms/scripts/test_serve_vlm_env.py       # one file
-uv run pytest tests/test_vlm_serve.py::test_models_proxy_uses_expected_upstream   # one test
+pytest
+pytest deploy_vlms/scripts/test_serve_vlm_env.py       # one file
+pytest tests/test_vlm_serve.py::test_models_proxy_uses_expected_upstream   # one test
 
 # bring up / tear down (GPU server only)
-uv run python deploy_vlms/scripts/start_all.py
-uv run python deploy_vlms/scripts/start_model.py qwen3.8-27b
-uv run python deploy_vlms/scripts/stop_model.py all
-uv run python deploy_vlms/scripts/check_vlm.py http://127.0.0.1:8006 qwen3.8-27b
+python deploy_vlms/scripts/start_all.py
+python deploy_vlms/scripts/start_model.py qwen3.8-27b
+python deploy_vlms/scripts/stop_model.py all
+python deploy_vlms/scripts/check_vlm.py http://127.0.0.1:8006 qwen3.8-27b
 
 # health checks
-uv run python deploy_vlms/scripts/check_host_ram.py     # run warm, after models are up
-uv run python deploy_vlms/scripts/check_kv_longctx.py   # 5-10 min, run when idle
+python deploy_vlms/scripts/check_host_ram.py     # run warm, after models are up
+python deploy_vlms/scripts/check_kv_longctx.py   # 5-10 min, run when idle
 ```
 
 Tests live in **two places**: `tests/` (Flask proxy) and beside the code they cover

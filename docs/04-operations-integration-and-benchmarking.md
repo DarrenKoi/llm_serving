@@ -115,6 +115,6 @@ Use a consistent comparison table:
 
 ### 7.3 Service Starts But Coworkers Still Fail
 
-- run `uv run python poc/work2/connection_check.py`
+- run `python poc/work2/connection_check.py`
 - test the exact slug used by the task script
 - verify the proxy URL rather than only the direct port

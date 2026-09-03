@@ -24,7 +24,7 @@
   - 다른 사람이 그 인스턴스를 쓰는 중이면 큐가 밀린다. 한산할 때 돌릴 것.
 
 사용법:
-  uv run python deploy_vlms/scripts/check_kv_longctx.py
+  python deploy_vlms/scripts/check_kv_longctx.py
 """
 
 import json
@@ -199,7 +199,7 @@ def main():
 
     if count_tokens("ping") is None:
         print(f"[WARNING] {BASE_URL} 에 붙지 못했다. GPU 서버에서 실행할 것.")
-        print("          (인스턴스가 떠 있는지: uv run python deploy_vlms/scripts/check_vlm.py)")
+        print("          (인스턴스가 떠 있는지: python deploy_vlms/scripts/check_vlm.py)")
         self_check()
         return
 

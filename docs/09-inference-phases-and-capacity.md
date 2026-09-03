@@ -283,7 +283,7 @@ production 루프일 수 있다.**
 8명을 붙이기 전에 warm 상태에서 한 번 확인할 것:
 
 ```bash
-uv run python deploy_vlms/scripts/check_host_ram.py
+python deploy_vlms/scripts/check_host_ram.py
 ```
 
 ---

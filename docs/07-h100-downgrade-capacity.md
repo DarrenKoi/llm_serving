@@ -168,8 +168,8 @@ H100 GPU 2: MAI-UI + PaddleOCR-VL + GOT-OCR
 H100 서버에서 모델 파일이 이미 stage되어 있다는 전제에서 다음 순서로 검증한다.
 
 ```bash
-uv run python deploy_vlms/scripts/start_all.py
-uv run python deploy_vlms/scripts/check_vlm.py
+python deploy_vlms/scripts/start_all.py
+python deploy_vlms/scripts/check_vlm.py
 ```
 
 개별 vLLM 모델만 단계적으로 확인할 때는 `start_model.py <instance>`를 사용한다. `GOT-OCR`은 `start_all.py`가 백그라운드 프로세스로 함께 띄우는 경로를 우선 사용한다.

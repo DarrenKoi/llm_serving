@@ -4,7 +4,7 @@
 그래서 "준비 안 됐는데 아직 살아 있는" 인스턴스는 다음 모델을 띄우기 전에
 반드시 내려야 한다.
 
-    uv run pytest deploy_vlms/scripts/test_start_all.py
+    pytest deploy_vlms/scripts/test_start_all.py
 """
 
 import importlib.util

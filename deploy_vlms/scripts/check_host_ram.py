@@ -18,7 +18,7 @@ RSS 에 잡혀 실제보다 훨씬 크게 보이고, 그 페이지는 커널이 
 값이라 커널이 직접 계산해준 '실제로 더 쓸 수 있는 양'이다).
 
 사용법 (모델을 다 띄운 뒤 warm 상태에서):
-  uv run python deploy_vlms/scripts/check_host_ram.py
+  python deploy_vlms/scripts/check_host_ram.py
 """
 
 import os

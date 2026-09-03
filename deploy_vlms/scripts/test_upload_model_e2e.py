@@ -1,7 +1,7 @@
 """실제 HTTP 왕복으로 클라이언트<->서버 계약을 검증한다.
 
 로컬에 진짜 werkzeug 서버를 띄우고 requests 로 올린다:
-    uv run pytest deploy_vlms/scripts/test_upload_model_e2e.py
+    pytest deploy_vlms/scripts/test_upload_model_e2e.py
 """
 
 import importlib.util
