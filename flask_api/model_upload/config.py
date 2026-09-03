@@ -14,10 +14,7 @@ from flask import Blueprint
 from .routes import create_model_upload_blueprint
 from .store import UploadStore
 
-DEFAULT_DEST_ROOT = (
-    "/path/to/llm_serving/"
-    "llm_serving/data/models"
-)
+DEFAULT_DEST_ROOT = "/path/to/models"
 STAGING_DIRNAME = ".upload_staging"
 DEFAULT_MAX_CHUNK_MB = 64
 URL_PREFIX = "/model_upload"
