@@ -31,9 +31,6 @@ class VLMServiceEntry:
 # 포트 및 활성 여부를 변경하려면 이 목록만 수정하면 된다.
 ALL_VLM_SERVICES: list[VLMServiceEntry] = [
     VLMServiceEntry("mai-ui", "MAI-UI-8B", "mai-ui-8b", 8002, enabled=True),
-    # A/B 벤치 전용. 상시 기동이 아니라서 기본 off - 켜려면 여기 enabled=True 로 바꾸고
-    # deploy 쪽에서도 mai-ui-2b 를 띄운다 (호스트 RAM 16GB, 4번째 인스턴스 금지).
-    VLMServiceEntry("mai-ui-2b", "MAI-UI-2B", "mai-ui-2b", 8007, enabled=False),
     VLMServiceEntry("paddleocr-vl-1.5", "PaddleOCR-VL-1.5", "paddleocr-vl-1.5", 8004, enabled=True),
     # route_slug 과 model_name 을 일부러 같게 둔다 - 호출부가 slug 대신 모델명을
     # 넘기는 실수가 조용히 통과하지 않도록 (paddleocr 와 같은 규약).

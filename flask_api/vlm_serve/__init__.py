@@ -19,8 +19,6 @@ from .config import (
 )
 from .mai_ui import SERVICE_CONFIG as MAI_UI_CONFIG
 from .mai_ui import service_blueprint as mai_ui_blueprint
-from .mai_ui_2b import SERVICE_CONFIG as MAI_UI_2B_CONFIG
-from .mai_ui_2b import service_blueprint as mai_ui_2b_blueprint
 from .paddleocr_vl import SERVICE_CONFIG as PADDLEOCR_VL_CONFIG
 from .paddleocr_vl import service_blueprint as paddleocr_vl_blueprint
 from .qwen3_8_27b import SERVICE_CONFIG as QWEN3_8_27B_CONFIG
@@ -30,7 +28,6 @@ from .qwen3_8_27b import service_blueprint as qwen3_8_27b_blueprint
 
 _ALL_SERVICE_BLUEPRINTS = [
     (MAI_UI_CONFIG, mai_ui_blueprint),
-    (MAI_UI_2B_CONFIG, mai_ui_2b_blueprint),
     (PADDLEOCR_VL_CONFIG, paddleocr_vl_blueprint),
     (QWEN3_8_27B_CONFIG, qwen3_8_27b_blueprint),
 ]
