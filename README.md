@@ -66,8 +66,13 @@ uv run pytest
 ## Conventions
 
 - **No CLI arguments.** Configuration lives in `config/*.env` and in the constant
-  block at the top of each entry-point script. Shell env overrides both.
-- `.env` is for secrets only; everything else is a config file or a constant block.
+  block at the top of each entry-point script.
+- **`config/*.env` wins over the shell.** `load_env_file` assigns unconditionally, so
+  exporting `PORT=…` does not override a model's config. To pass a value in from the
+  shell, have the config file reference it as `${VAR}` — the loader expands those.
+- `.env` (gitignored) holds site-specific values: secrets, plus `MODEL_ROOT`, which
+  `config/*.env` reads via `${MODEL_ROOT}`. Copy `.env_example` to `.env` and fill it in,
+  then `set -a; . ./.env; set +a` before starting anything — nothing auto-loads it.
 - Korean docstrings, `[INFO]`/`[ERROR]`/`[WARNING]` prints (not the `logging` module).
   Exception: the `flask_api/vlm_serve/*.py` route stubs keep one-line English docstrings.
 - Model weights are referenced by **local absolute paths**. The office environment is

@@ -84,6 +84,10 @@ def load_env_file(path: str) -> None:
             # 따옴표 제거
             if len(value) >= 2 and value[0] == value[-1] and value[0] in ('"', "'"):
                 value = value[1:-1]
+            # ${VAR} 를 이미 로드된 환경으로 펼친다. MODEL_ROOT 처럼 사이트마다 다른
+            # 경로를 .env 한 곳에서만 채우고 config 는 공개본 그대로 두기 위한 것.
+            # 못 펼치면 리터럴로 남고, MODEL_ID 의 isabs 검사가 그대로 잡아준다.
+            value = os.path.expandvars(value)
             os.environ[key] = value
 
 
