@@ -20,6 +20,20 @@ from .logger import get_vlm_logger
 logger = get_vlm_logger("proxy")
 
 
+def env_prefix_for(route_slug: str) -> str:
+    """route slug 을 환경변수 이름 조각으로 바꾼다.
+
+    slug 에는 `-` 와 `.` 이 둘 다 나온다 (`mai-ui`, `qwen3.8-27b`). 환경변수
+    이름에 점은 쓸 수 없으므로 둘 다 `_` 로 접는다. 점을 빼먹으면
+    `VLM_SERVE_QWEN3.8_27B_BASE_URL` 이라는, shell 로는 export 조차 못 하는
+    키가 만들어져 override 가 조용히 무시된다.
+
+    `__init__` 의 health 경로도 이 함수를 쓴다 - 프록시가 실제로 나가는 주소와
+    health 가 보고하는 주소는 반드시 같은 키에서 나와야 한다.
+    """
+    return route_slug.replace("-", "_").replace(".", "_").upper()
+
+
 @dataclass(frozen=True)
 class VLMServiceConfig:
     """VLM 서비스 route 설정."""
@@ -33,7 +47,7 @@ class VLMServiceConfig:
     @property
     def env_prefix(self) -> str:
         """환경변수 prefix 를 반환한다."""
-        return self.route_slug.replace("-", "_").upper()
+        return env_prefix_for(self.route_slug)
 
     @property
     def api_base_path(self) -> str:

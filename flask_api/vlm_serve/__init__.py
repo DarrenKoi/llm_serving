@@ -23,6 +23,7 @@ from .paddleocr_vl import SERVICE_CONFIG as PADDLEOCR_VL_CONFIG
 from .paddleocr_vl import service_blueprint as paddleocr_vl_blueprint
 from .qwen3_8_27b import SERVICE_CONFIG as QWEN3_8_27B_CONFIG
 from .qwen3_8_27b import service_blueprint as qwen3_8_27b_blueprint
+from .service_template import env_prefix_for
 
 # ── 서비스 blueprint 등록 ─────────────────────────────────────────────
 
@@ -98,18 +99,13 @@ def _parse_port(raw_value: str) -> int | None:
         return None
 
 
-def _env_prefix(route_slug: str) -> str:
-    """route slug 기반 env prefix 를 반환한다."""
-    return route_slug.replace("-", "_").replace(".", "_").upper()
-
-
 def _base_url_for_service(route_slug: str, upstream_port: int | None) -> str | None:
     """route slug 기준 upstream base URL 을 계산한다."""
     service_config = VLM_SERVICE_CONFIGS.get(route_slug)
     if service_config is not None:
         return service_config.upstream_base_url
 
-    service_key = f"VLM_SERVE_{_env_prefix(route_slug)}_BASE_URL"
+    service_key = f"VLM_SERVE_{env_prefix_for(route_slug)}_BASE_URL"
     service_url = os.environ.get(service_key, "").strip().rstrip("/")
     if service_url:
         return service_url

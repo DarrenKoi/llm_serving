@@ -433,3 +433,40 @@ def test_client_authorization_still_passes_through_when_auth_is_off(
     )
 
     assert _CAPTURED["headers"]["Authorization"] == "Bearer caller-own-key"
+
+
+def test_base_url_override_works_for_dotted_slug(monkeypatch):
+    """점이 든 slug 도 env override 가 먹어야 한다.
+
+    `qwen3.8-27b` 의 점을 `_` 로 접지 않으면 `VLM_SERVE_QWEN3.8_27B_BASE_URL`
+    이라는 shell 로 export 불가능한 키가 만들어지고, override 가 조용히 무시된다.
+    """
+    monkeypatch.setenv("VLM_SERVE_QWEN3_8_27B_BASE_URL", "http://127.0.0.1:8106")
+
+    captured: dict[str, object] = {}
+
+    def fake_request(**kwargs):
+        captured.update(kwargs)
+        return DummyResponse(
+            status_code=200,
+            body=json.dumps({"data": [{"id": "qwen3.8-27b"}]}).encode("utf-8"),
+        )
+
+    monkeypatch.setattr("flask_api.vlm_serve.service_template.requests.request", fake_request)
+
+    client = _create_test_app().test_client()
+    response = client.get("/api/vlm_serve/qwen3.8-27b/v1/models")
+
+    assert response.status_code == 200
+    assert captured["url"] == "http://127.0.0.1:8106/v1/models"
+
+
+def test_health_reports_same_base_url_as_proxy_uses(monkeypatch):
+    """health 가 보고하는 주소와 프록시가 실제로 나가는 주소가 갈리면 안 된다."""
+    monkeypatch.setenv("VLM_SERVE_QWEN3_8_27B_BASE_URL", "http://127.0.0.1:8106")
+
+    from flask_api.vlm_serve.qwen3_8_27b import SERVICE_CONFIG
+    from flask_api.vlm_serve import _base_url_for_service
+
+    assert SERVICE_CONFIG.upstream_base_url == "http://127.0.0.1:8106"
+    assert _base_url_for_service("qwen3.8-27b", 8006) == SERVICE_CONFIG.upstream_base_url
