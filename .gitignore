@@ -25,3 +25,6 @@ deploy_vlms/config/site.env
 
 # Playwright MCP 산출물 (스냅샷/콘솔 로그)
 .playwright-mcp/
+
+# humanize-korean 작업 산출물 (윤문 중간물). 최종본만 docs/ 에 남긴다.
+_workspace/
