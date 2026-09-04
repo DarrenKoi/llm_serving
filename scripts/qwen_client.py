@@ -13,6 +13,10 @@
                             서버 EXTRA_VLLM_ARGS 에 --reasoning-config 가 있어야 동작한다.
                             없으면 조용히 무시된다 - thinking_budget.py 가 그걸 잡아낸다.
   - 샘플링                 : 모델 카드 권장값. thinking 과 instruct 가 다르다(아래 상수).
+  - 이미지                 : image_part(path) / user_message(text, *paths). base64 data URL 로 넣는다.
+                            사무실은 오프라인이라 http URL 은 서버가 못 가져오고, file:// 는
+                            --allowed-local-media-path 가 없어 거절된다. 서버 한도는 요청당 2장
+                            (qwen3.8-27b.env 의 LIMIT_MM_PER_PROMPT).
 
 프록시(/api/vlm_serve/qwen3.8-27b) 대신 vLLM 에 직접 붙는 이유는 check_kv_longctx.py 와
 같다 - 프록시는 응답을 끝까지 버퍼링하고 read timeout 300s 라, xhigh 로 몇 분씩
@@ -20,7 +24,9 @@
 http://<flask>/api/vlm_serve/qwen3.8-27b 로 바꾸고 TOKEN 을 채운다.
 """
 
+import base64
 import json
+import mimetypes
 import time
 import urllib.error
 import urllib.request
@@ -57,6 +63,21 @@ class Reply(NamedTuple):
         if self.reasoning:
             message["reasoning_content"] = self.reasoning
         return message
+
+
+def image_part(path):
+    """이미지 파일 하나 -> OpenAI 식 image_url 콘텐츠 파트 (base64 data URL)."""
+    mime = mimetypes.guess_type(str(path))[0] or "image/png"
+    with open(path, "rb") as f:
+        b64 = base64.b64encode(f.read()).decode("ascii")
+    return {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}}
+
+
+def user_message(text, *image_paths):
+    """텍스트 + 이미지 0~N 장을 담은 user 메시지. 이미지가 없으면 content 는 문자열 그대로다."""
+    if not image_paths:
+        return {"role": "user", "content": text}
+    return {"role": "user", "content": [*map(image_part, image_paths), {"type": "text", "text": text}]}
 
 
 def build_request(messages, *, thinking=True, effort="xhigh", budget=None,

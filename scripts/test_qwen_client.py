@@ -2,7 +2,7 @@
 
 import pytest
 
-from qwen_client import EFFORT_LEVELS, build_request, iter_sse, parse_reply
+from qwen_client import EFFORT_LEVELS, build_request, image_part, iter_sse, parse_reply, user_message
 
 
 def test_effort_goes_into_chat_template_kwargs_not_top_level():
@@ -47,3 +47,16 @@ def test_iter_sse_splits_reasoning_and_content_and_stops_at_done():
         b'data: {"choices":[{"delta":{"content":"IGNORED"}}]}',
     ]
     assert list(iter_sse(lines)) == [("reasoning", "a"), ("content", "b")]
+
+
+def test_user_message_embeds_images_as_base64_data_urls(tmp_path):
+    png = tmp_path / "a.png"
+    png.write_bytes(b"\x89PNG")
+    assert user_message("x") == {"role": "user", "content": "x"}
+    msg = user_message("설명", png, png)
+    assert msg["content"][-1] == {"type": "text", "text": "설명"}
+    assert msg["content"][0] == image_part(png)
+    assert msg["content"][0]["image_url"]["url"] == "data:image/png;base64,iVBORw=="
+    odd = tmp_path / "b.unknownext"
+    odd.write_bytes(b"")
+    assert image_part(odd)["image_url"]["url"].startswith("data:image/png;base64,")  # 확장자 모르면 png

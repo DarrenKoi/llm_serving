@@ -65,6 +65,17 @@ budget 에 닿으면 vLLM 이 `</think>` 를 강제로 넣어 답으로 넘긴�
 없으면 200 으로 정상 응답하면서 budget 만 조용히 무시된다. `thinking_budget.py` 가
 "사고 토큰 > budget" 으로 그걸 잡아 `[WARNING]` 을 찍는다.
 
+### 4. 이미지 - `user_message(text, *paths)` / `image_part(path)`
+
+base64 data URL 로 넣는다. 사무실은 오프라인이라 http URL 은 서버가 못 가져오고, `file://` 는
+`--allowed-local-media-path` 가 없어 거절된다. 서버 한도는 요청당 **2장**
+(`qwen3.8-27b.env` 의 `LIMIT_MM_PER_PROMPT`). 도구 호출과 한 요청에 섞어도 된다.
+
+```python
+from qwen_client import chat, user_message
+reply = chat([user_message("두 화면의 차이를 설명해라.", "before.png", "after.png")], effort="medium")
+```
+
 ## 그 밖에 알아둘 것
 
 - **`max_tokens` 는 사고 + 답의 합이다.** xhigh 에서 `finish_reason=length` 가 나오면 답이
