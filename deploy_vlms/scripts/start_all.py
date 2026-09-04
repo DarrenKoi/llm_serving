@@ -36,7 +36,7 @@ import time
 from pathlib import Path
 
 from check_vlm import check_model
-from start_model import stop_if_already_running
+from start_model import rotate_log, stop_if_already_running
 
 
 STARTUP_POLL_SEC = 2.0
@@ -127,6 +127,7 @@ def start_vllm_model(script_dir: Path, deploy_vlms_root: Path, instance: str) ->
     """vLLM 모델을 백그라운드로 시작한다. 성공 시 PID, 실패 시 0."""
     cmd = [sys.executable, str(script_dir / "serve_vlm.py"), instance]
     log_path, pid_path = resolve_runtime_paths(deploy_vlms_root, instance)
+    rotate_log(log_path)
 
     env = os.environ.copy()
     env["PYTHONUNBUFFERED"] = "1"

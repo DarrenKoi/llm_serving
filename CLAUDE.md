@@ -87,8 +87,9 @@ three-line shims over `start_model.py`.
 
 `start_model.py` backgrounds it and writes `deploy_vlms/runtime/{logs,pids}/<instance>.{log,pid}`
 (gitignored). `stop_model.py` resolves a target by instance name → PID file → falling back to
-whoever holds the port. Instance logs are **append-only**: read the section after the last
-`Launch requested` marker, or you will be diagnosing an earlier run. `SERVE_VLM_DRY_RUN=1` makes
+whoever holds the port. Each launch **rotates** the instance log: the previous run moves to
+`<instance>.log.<timestamp>` and only `LOG_KEEP` (5) rotated files survive, so `<instance>.log`
+is always the current run and a crash's tail is never lost. `SERVE_VLM_DRY_RUN=1` makes
 `serve_vlm.py` run every check and print the vLLM command without starting it; `diagnose_paths.py`
 uses that to show the launcher's own view of the config next to an in-process check.
 

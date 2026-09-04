@@ -35,6 +35,9 @@ from stop_model import (
 
 STARTUP_POLL_SEC = 1.0
 RUN_IN_BACKGROUND = 1
+# 기동마다 이전 로그를 <instance>.log.<YYYYmmdd-HHMMSS> 로 옮기고 이 개수만 남긴다.
+# 로그는 vllm serve 의 stdout 그대로라 회전 없이는 끝없이 자란다 (디스크 문제, RAM 아님).
+LOG_KEEP = 5
 
 
 def log(msg: str) -> None:
@@ -74,6 +77,21 @@ def resolve_runtime_paths(script_dir: Path, instance: str) -> tuple[Path, Path]:
     return log_dir / f"{instance}.log", pid_dir / f"{instance}.pid"
 
 
+def rotate_log(log_path: Path, keep: int = LOG_KEEP) -> None:
+    """이전 실행 로그를 타임스탬프 이름으로 옮기고 오래된 것부터 keep 개만 남긴다."""
+    if log_path.is_file() and log_path.stat().st_size > 0:
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        rotated = log_path.with_name(f"{log_path.name}.{stamp}")
+        n = 1
+        while rotated.exists():
+            n += 1
+            rotated = log_path.with_name(f"{log_path.name}.{stamp}-{n}")
+        log_path.rename(rotated)
+    old = sorted(log_path.parent.glob(f"{log_path.name}.*"), key=lambda p: p.name)
+    for stale in old[:-keep] if keep > 0 else old:
+        stale.unlink()
+
+
 def launch_foreground(script_dir: Path, instance: str) -> int:
     cmd = [sys.executable, str(script_dir / "serve_vlm.py"), instance]
     log(f"Starting instance={instance} in foreground")
@@ -83,6 +101,7 @@ def launch_foreground(script_dir: Path, instance: str) -> int:
 def launch_detached(script_dir: Path, instance: str) -> int:
     cmd = [sys.executable, str(script_dir / "serve_vlm.py"), instance]
     log_path, pid_path = resolve_runtime_paths(script_dir, instance)
+    rotate_log(log_path)
     env = os.environ.copy()
     env["PYTHONUNBUFFERED"] = "1"
 
