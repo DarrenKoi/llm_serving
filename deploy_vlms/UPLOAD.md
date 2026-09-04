@@ -56,6 +56,52 @@ curl -s http://<서버>:<포트>/api/model_upload/health
 `nginx.conf` 를 못 건드리는 경우 `MODEL_UPLOAD_CHUNK_MB` 를 nginx 상한 아래로
 직접 맞춰도 된다(예: 상한이 1m 이면 `MODEL_UPLOAD_CHUNK_MB=1`).
 
+## 올리기 전에: 목적지가 진짜 PVC 인가
+
+**업로드는 200 인데 나중에 `start_all.py` 가 "디렉토리 없음" 으로 죽는 사고**가 있었다
+(2026-09-05. pod 재생성으로 풀렸고, 1시간을 기다려도 안 풀렸으므로 NFS 속성 캐시는
+아니었다 - `acdirmax` 기본이 60초다). 원인은 전부 **마운트 계층**에 있다:
+업로드를 받은 쪽과 모델을 읽는 쪽이 서로 다른 것을 본다.
+
+그래서 **아무것도 올리기 전에** 목적지를 확인한다. 48GB 를 올린 뒤 기동에서
+발견하는 것보다 지금 아는 편이 압도적으로 싸다.
+
+```bash
+curl -s http://<서버>:<포트>/api/model_upload/health | python3 -m json.tool
+```
+
+`dest_mount` 를 본다:
+
+| `fs_type` / 값 | 판정 | 조치 |
+|---|---|---|
+| `nfs` / `nfs4`, `mount_point` 가 기대한 PVC 경로 | **정상** | 올려도 된다 |
+| `overlay` (= `container_layer: true`) | **위험** | PVC 가 안 붙었다. 컨테이너 쓰기 레이어에 쓰는 중이라 **pod 이 재생성되면 가중치가 통째로 사라진다.** 올리지 말 것 |
+| `mount_point` 가 `/` | 볼륨 미마운트 | pod 스펙 확인 |
+| `propagation` 이 `private` | 잠재 위험 | pod 시작 **후** 호스트에 새로 붙은 마운트는 이 pod 에 영영 안 보인다. 이번 사고의 유력 원인 |
+| `available: false` | 리눅스가 아님 | 개발 노트북. 진단만 비고 업로드는 정상 동작 |
+
+`/proc/self/mountinfo` 를 쓰는 이유는 pod 안에서 **특권 없이** 읽을 수 있는 유일한
+실마운트 증거이기 때문이다. `mount` 명령은 컨테이너에 없을 수 있고 `/etc/mtab` 은
+호스트 것이 섞인다.
+
+### PVC 를 쓸 때 확인할 네 가지
+
+`MODEL_UPLOAD_ROOT` 를 PVC 경로로 바꾸는 것만으로는 절반이다.
+
+1. **`MODEL_ROOT`(`site.env`) 도 같은 PVC 를 가리켜야 한다.** 업로드 목적지와 vLLM 이
+   읽는 곳이 갈리면 이 문제가 그대로 재현된다.
+2. **AccessMode.** 업로드 pod 과 vLLM pod 이 다르면 `ReadWriteMany` 여야 한다.
+   `ReadWriteOnce` 면 둘이 **같은 pod** 이어야 한다.
+   `kubectl get pvc <이름> -o jsonpath='{.spec.accessModes}'`
+3. **`subPath` 를 쓰지 말 것.** 마운트 시점에 경로가 해석되어 "pod 시작 후 생긴 것이
+   안 보임" 함정의 단골이다. PVC 를 통째로 마운트하고 앱이 하위 디렉토리를 쓰게 한다.
+4. **staging 이 같은 PVC 안이어야 한다.** `MODEL_UPLOAD_STAGING_DIR` 기본값
+   `<root>/.upload_staging` 이 지켜져야 `os.replace` 가 원자적이다. 파일시스템이
+   다르면 `EXDEV` 로 실패한다.
+
+용량도 미리 본다 - 27B BF16 이 ~48GB 다.
+`kubectl get pvc <이름> -o jsonpath='{.status.capacity.storage}'`
+
 ## 클라이언트 (로컬 PC)
 
 **인자는 `upload_model.py` 상단 상수 블록을 고쳐 쓴다** (셸 env 는 1회성 override).
@@ -102,6 +148,40 @@ python deploy_vlms/scripts/upload_model.py
 | `완료 응답을 못 받았습니다` 반복 | `proxy_read_timeout` 이 재해싱 시간보다 짧다. nginx 를 못 고치면 `MAX_RETRIES` 를 더 올린다(기본 12회=~3분, 백오프 상한 30s) |
 | 완료 시 `ChecksumMismatch` | 청크는 다 통과했는데 조립 결과가 다르다 = 디스크 의심. 서버가 `.part` 를 버리고 0 부터 다시 받는다 |
 
+### 업로드는 성공했는데 런처가 파일을 못 찾을 때
+
+`/complete` 응답의 `verification` 을 먼저 본다. `os.replace` **이후의 목적지**를
+되읽은 결과다 - 청크 해시와 전체 해시는 `.part` 를 읽은 것이라 다른 것을 잡는다.
+
+```
+해시 검증  -> 전송/조립 중 손상
+verification -> 마운트 어긋남(ESTALE), 옮긴 결과가 이 프로세스에 안 보이는 상태
+```
+
+`stat` 만으로는 캐시된 속성으로 답할 수 있어서 **1바이트를 실제로 read** 한다.
+여기서 실패하면 업로드가 `DestinationUnverified`(500)로 떨어지므로, 200 을 받았다면
+적어도 **업로드 프로세스의 시선에서는** 파일이 실재한다.
+
+그런데도 런처가 못 찾으면 두 프로세스가 다른 마운트를 보는 것이다.
+`verification.mount` 와 런처 쪽을 대조한다:
+
+```bash
+python deploy_vlms/scripts/diagnose_paths.py   # 런처 자신의 시선
+```
+
+`ls` 결과가 원인을 가른다:
+
+| `ls ${MODEL_ROOT}/<model>/` | 원인 | pod 안에서 고칠 수 있나 |
+|---|---|---|
+| 디렉토리는 있는데 **비어 있음** | mount propagation (`private`) | 불가. pod 재생성 |
+| `Stale file handle` / `I/O error` | ESTALE. `os.replace` 로 inode 가 바뀐 뒤 옛 핸들 | 불가. pod 재생성 |
+| `fs_type` 이 `overlay` | PVC 미마운트 | 불가. pod 스펙 수정 |
+| 정상 출력 | 마운트는 멀쩡. 권한이나 포트 점유 | `chmod a+rX`, `stop_model.py all` |
+
+셋 다 pod 안에서는 못 고친다 - 마운트를 만든 주체가 kubelet 이라 컨테이너에는
+`CAP_SYS_ADMIN` 도 대상도 없다. **재시작이 유일한 대응인 게 맞다.** 다만 재시작은
+원인을 안 남기므로, 위 표로 어느 것이었는지는 기록해 둘 것. 반복되면 인프라 쪽 일이다.
+
 ### `.upload_staging` 를 손으로 지우지 말 것
 
 `.part` 는 받는 중인 실파일이라 크지만, 같이 있는 `.json` 은 수백 바이트짜리 상태
@@ -122,6 +202,6 @@ curl -X DELETE -H "X-Upload-Token: <비밀>" \
 전부 Mac 에서 실서버 없이 돈다 (마지막 것만 로컬에 임시 서버를 띄운다).
 
 ```bash
-pytest flask_api/model_upload              # 36 (store / routes / 배선)
+pytest flask_api/model_upload              # 42 (store / routes / 배선 / 목적지 검증)
 pytest deploy_vlms/scripts                 # 44 (클라이언트 루프 + 실제 HTTP 왕복 + 기동 가드)
 ```

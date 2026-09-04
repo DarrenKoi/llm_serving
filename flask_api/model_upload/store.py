@@ -62,6 +62,12 @@ class PathNotAllowed(UploadError):
     status_code = 400
 
 
+class DestinationUnverified(UploadError):
+    """목적지로 옮겼는데 파일시스템을 통해 되읽히지 않는다."""
+
+    status_code = 500
+
+
 class OffsetMismatch(UploadError):
     """클라이언트가 보낸 offset 이 서버가 기대하는 지점과 다르다."""
 
@@ -141,6 +147,78 @@ def _hash_file(path: Path) -> str:
                 break
             hasher.update(block)
     return hasher.hexdigest()
+
+
+def describe_mount(path: Path) -> dict[str, object]:
+    """path 가 실제로 어느 마운트 위에 있는지 알아낸다.
+
+    업로드는 성공했는데 나중에 런처가 "디렉토리 없음"으로 죽는 사고의 원인은
+    거의 항상 여기다 - 업로드를 받은 쪽과 모델을 읽는 쪽이 **서로 다른 마운트**
+    를 본다. 원인을 가르는 값은 셋이다:
+
+    - `fs_type` 이 `overlay` 계열  -> PVC 가 안 붙었고 컨테이너 쓰기 레이어에
+      썼다. pod 이 재생성되면 가중치가 통째로 사라진다. 가장 위험한 상태다.
+    - `fs_type` 이 `nfs`/`nfs4`    -> 정상. `mount_point` 가 기대한 경로인지 본다.
+    - `mount_point` 가 `/`         -> 볼륨이 아예 마운트되지 않았다.
+
+    `/proc/self/mountinfo` 를 쓰는 이유는 pod 안에서 특권 없이 읽을 수 있는
+    유일한 실마운트 증거이기 때문이다. `mount` 명령은 컨테이너에 없을 수 있고
+    `/etc/mtab` 은 호스트 것이 섞인다.
+
+    /proc 이 없는 환경(개발 노트북)에서는 조용히 unavailable 을 준다 - 이것은
+    진단 정보이지 업로드의 성공 조건이 아니다.
+    """
+    result: dict[str, object] = {"path": str(path)}
+    try:
+        resolved = path.resolve()
+    except OSError as exc:  # 끊어진 심링크, ESTALE 등
+        result["error"] = f"{type(exc).__name__}: {exc}"
+        return result
+    result["resolved"] = str(resolved)
+
+    try:
+        raw = Path("/proc/self/mountinfo").read_text()
+    except OSError:
+        result["available"] = False
+        result["reason"] = "/proc/self/mountinfo not readable (non-Linux or restricted)"
+        return result
+
+    # mountinfo 한 줄: id parent major:minor root MOUNT_POINT opts... - FSTYPE source superopts
+    # 옵션 개수가 가변이라 " - " 구분자를 기준으로 앞뒤를 나눈다.
+    best: tuple[int, dict[str, str]] | None = None
+    for line in raw.splitlines():
+        head, sep, tail = line.partition(" - ")
+        if not sep:
+            continue
+        head_fields = head.split()
+        tail_fields = tail.split()
+        if len(head_fields) < 5 or len(tail_fields) < 2:
+            continue
+        # mountinfo 는 공백/탭 등을 8진 이스케이프(\040)로 쓴다.
+        mount_point = head_fields[4].replace("\\040", " ")
+        if resolved != Path(mount_point) and mount_point not in ("/",) and not str(resolved).startswith(
+            mount_point.rstrip("/") + "/"
+        ):
+            continue
+        entry = {
+            "mount_point": mount_point,
+            "fs_type": tail_fields[0],
+            "source": tail_fields[1],
+            # propagation: shared/master 가 있으면 호스트 마운트 변화가 전파된다.
+            # 없으면(private) pod 시작 후 호스트에 새로 붙은 마운트는 영영 안 보인다.
+            "propagation": " ".join(f for f in head_fields[6:] if f.startswith(("shared:", "master:"))) or "private",
+        }
+        # 가장 긴 mount_point 가 실제로 이 경로를 덮는 마운트다.
+        if best is None or len(mount_point) > best[0]:
+            best = (len(mount_point), entry)
+
+    result["available"] = True
+    if best is None:
+        result["reason"] = "no mountinfo entry covers this path"
+        return result
+    result.update(best[1])
+    result["container_layer"] = str(best[1]["fs_type"]).startswith("overlay")
+    return result
 
 
 class UploadStore:
@@ -312,6 +390,53 @@ class UploadStore:
         completed = replace(session, completed=True)
         self._write_state(completed)
         return completed
+
+    def verify_destination(self, session: UploadSession) -> dict[str, object]:
+        """옮겨놓은 파일을 **파일시스템을 통해 되읽어** 확인한다.
+
+        `finish()` 의 해시 검증은 `.part` 를 읽은 것이고, 이 함수는 `os.replace`
+        **이후의 목적지**를 읽는다. 둘은 다른 것을 잡는다:
+
+        - 해시 검증  -> 전송/조립 중 손상
+        - 되읽기     -> 마운트가 어긋났거나(ESTALE), 옮긴 결과가 이 프로세스에
+                        보이지 않는 상태. 업로드는 200 인데 런처는 파일을 못 찾는
+                        그 사고가 여기서 잡힌다.
+
+        크기 불일치나 읽기 실패는 **업로드 실패로 올린다** - 200 을 받고 안심한
+        뒤 몇 시간 있다 기동에서 발견하는 것보다 지금 아는 편이 싸다.
+        마운트 정보는 판단 재료일 뿐이라 실패 사유로 쓰지 않는다.
+        """
+        destination = self.dest_root / session.rel_path
+        report: dict[str, object] = {
+            "path": str(destination),
+            "expected_size": session.size,
+            "mount": describe_mount(destination.parent),
+        }
+        try:
+            stat_result = destination.stat()
+        except OSError as exc:
+            raise DestinationUnverified(
+                f"destination not readable after commit: {destination} "
+                f"({type(exc).__name__}: {exc})"
+            ) from exc
+        report["actual_size"] = stat_result.st_size
+        if stat_result.st_size != session.size:
+            raise DestinationUnverified(
+                f"destination size mismatch: {destination} "
+                f"expected={session.size} actual={stat_result.st_size}"
+            )
+        if session.size:
+            # stat 은 캐시된 속성으로 답할 수 있다. 실제 read 는 서버까지 간다.
+            try:
+                with open(destination, "rb") as handle:
+                    handle.read(1)
+            except OSError as exc:
+                raise DestinationUnverified(
+                    f"destination stat ok but read failed: {destination} "
+                    f"({type(exc).__name__}: {exc})"
+                ) from exc
+        report["readable"] = True
+        return report
 
     def abort(self, upload_id: str) -> None:
         """진행 중인 세션을 버리고 staging 을 정리한다."""

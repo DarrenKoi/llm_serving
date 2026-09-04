@@ -9,8 +9,12 @@ import io
 
 import pytest
 
+from pathlib import Path
+
 from flask_api.model_upload.store import (
     ChecksumMismatch,
+    DestinationUnverified,
+    describe_mount,
     OffsetMismatch,
     PathNotAllowed,
     UploadStore,
@@ -439,3 +443,68 @@ def test_zero_byte_file_completes(store, tmp_path):
 
     assert finished.completed is True
     assert (tmp_path / "models" / "MAI-UI-8B" / ".gitkeep-like").read_bytes() == b""
+
+
+# ── 목적지 되읽기 검증 ────────────────────────────────────────────────
+# 업로드는 200 인데 나중에 런처가 파일을 못 찾는 사고를 업로드 시점에 잡는다.
+
+def test_verify_destination_reports_size_and_mount(store):
+    session = _upload_all(store, "m/w.bin", b"hello", chunk_size=2)
+
+    report = store.verify_destination(session)
+
+    assert report["expected_size"] == 5
+    assert report["actual_size"] == 5
+    assert report["readable"] is True
+    assert report["path"].endswith("m/w.bin")
+    assert "mount" in report  # 리눅스가 아니면 available=False 로만 들어온다
+
+
+def test_verify_destination_raises_when_file_vanished(store, tmp_path):
+    """옮긴 뒤 목적지가 안 보이면 - 마운트가 어긋난 상태 - 업로드 실패로 올린다."""
+    session = _upload_all(store, "m/w.bin", b"hello", chunk_size=5)
+    (tmp_path / "models" / "m" / "w.bin").unlink()
+
+    with pytest.raises(DestinationUnverified):
+        store.verify_destination(session)
+
+
+def test_verify_destination_raises_on_size_mismatch(store, tmp_path):
+    session = _upload_all(store, "m/w.bin", b"hello", chunk_size=5)
+    (tmp_path / "models" / "m" / "w.bin").write_bytes(b"hi")
+
+    with pytest.raises(DestinationUnverified):
+        store.verify_destination(session)
+
+
+def test_verify_destination_allows_zero_byte_file(store):
+    """0바이트 파일은 HF 리포에 흔하다. read 를 시도하면 안 된다."""
+    session = _upload_all(store, "m/empty.txt", b"", chunk_size=8)
+
+    assert store.verify_destination(session)["readable"] is True
+
+
+def test_describe_mount_degrades_without_proc(tmp_path, monkeypatch):
+    """/proc 이 없는 개발 노트북에서도 예외 없이 진단만 비운다."""
+    monkeypatch.setattr(
+        Path, "read_text", lambda self, *a, **k: (_ for _ in ()).throw(OSError("no /proc"))
+    )
+    assert describe_mount(tmp_path)["available"] is False
+
+
+def test_describe_mount_picks_longest_mount_and_flags_overlay(tmp_path, monkeypatch):
+    """가장 긴 mount_point 가 이긴다. overlay 면 PVC 가 안 붙은 것이다."""
+    mountinfo = (
+        "1 0 0:1 / / rw,relatime shared:1 - overlay overlay rw\n"
+        f"2 1 0:2 / {tmp_path} rw,relatime - nfs4 nas:/vol rw\n"
+    )
+    monkeypatch.setattr(Path, "read_text", lambda self, *a, **k: mountinfo)
+
+    on_nfs = describe_mount(tmp_path)
+    assert on_nfs["fs_type"] == "nfs4"
+    assert on_nfs["container_layer"] is False
+    assert on_nfs["propagation"] == "private"   # shared/master 없음 = 전파 안 됨
+
+    on_root = describe_mount(Path("/etc"))
+    assert on_root["container_layer"] is True
+    assert on_root["propagation"] == "shared:1"

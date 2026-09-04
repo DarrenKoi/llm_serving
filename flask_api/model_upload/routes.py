@@ -10,6 +10,7 @@ from flask import Blueprint, jsonify, request
 
 from .store import (
     ChunkTooLarge,
+    describe_mount,
     LengthRequired,
     UploadError,
     UploadSession,
@@ -77,6 +78,10 @@ def create_model_upload_blueprint(
                 "service": "model_upload",
                 "status": "ok",
                 "dest_root": str(store.dest_root),
+                # 업로드를 시작하기 **전에** 목적지가 어느 마운트인지 본다.
+                # fs_type 이 overlay 면 PVC 가 안 붙은 것이고, 그대로 올리면
+                # pod 재생성 때 가중치가 통째로 사라진다.
+                "dest_mount": describe_mount(store.dest_root),
                 "max_chunk_bytes": max_chunk_bytes,
                 "auth_required": bool(token),
             }
@@ -138,6 +143,10 @@ def create_model_upload_blueprint(
         session = store.finish(upload_id)
         payload = _session_payload(session)
         payload["path"] = str(store.dest_root / session.rel_path)
+        # 옮긴 결과를 파일시스템을 통해 되읽는다. 실패면 여기서 500 이 나가고,
+        # 성공이면 어느 마운트에 떨어졌는지가 응답에 남는다 - 나중에 런처가
+        # 파일을 못 찾을 때 "그때 어디에 썼나" 를 되짚을 수 있다.
+        payload["verification"] = store.verify_destination(session)
         return jsonify(payload)
 
     return blueprint
