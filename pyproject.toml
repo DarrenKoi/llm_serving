@@ -25,4 +25,4 @@ build-backend = "hatchling.build"
 packages = ["flask_api"]
 
 [tool.pytest.ini_options]
-pythonpath = ["."]
+pythonpath = [".", "scripts"]

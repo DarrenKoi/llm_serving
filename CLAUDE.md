@@ -46,11 +46,14 @@ python deploy_vlms/scripts/check_vlm.py http://127.0.0.1:8006 qwen3.8-27b
 python deploy_vlms/scripts/check_host_ram.py     # run warm, after models are up
 python deploy_vlms/scripts/check_kv_longctx.py   # 5-10 min, run when idle
 python deploy_vlms/scripts/diagnose_paths.py     # why MODEL_ROOT/MODEL_ID does not resolve; dry-runs the launcher
+
+# qwen3.8-27b thinking / effort / budget experiments — hit vLLM directly; knobs and traps in scripts/README.md
+python scripts/effort_ladder.py
 ```
 
 Tests live in **two places**: `tests/` (Flask proxy) and beside the code they cover
-(`flask_api/model_upload/test_*.py`, `deploy_vlms/scripts/test_*.py`). `pytest` finds both via
-`pythonpath = ["."]`. There is no linter or formatter configured — don't invent one.
+(`flask_api/model_upload/test_*.py`, `deploy_vlms/scripts/test_*.py`, `scripts/test_*.py`). `pytest`
+finds them via `pythonpath = [".", "scripts"]`. There is no linter or formatter configured — don't invent one.
 
 ## Architecture
 
@@ -198,6 +201,9 @@ timeout blocks in `deploy_vlms/nginx/`.
   rather than using `logging`; `flask_api/vlm_serve/` goes through `logger.py`
   (`get_vlm_logger`), and its route stubs keep one-line English docstrings.
 - `config.py` in each package is the single source of truth for that package's registry.
+- Client-side reasoning knobs go in `chat_template_kwargs` (`enable_thinking`, `reasoning_effort`
+  ∈ low/medium/xhigh). The top-level `reasoning_effort` field is a trap on vLLM 0.19.1 with this
+  model (`xhigh` → 400, `high` → template exception → 500). `scripts/qwen_client.py` encodes this.
 
 ## Relationship to auto_recipe_creator
 
