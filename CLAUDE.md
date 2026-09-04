@@ -27,7 +27,8 @@ cp deploy_vlms/config/site.env.example deploy_vlms/config/site.env   # then fill
 
 **pip is the toolchain here, not `uv`** — it is the company standard and `uv` has known issues in
 this environment. Use plain `python` / `pytest`; never add a `uv run` prefix to a command or doc.
-The GPU server runs vLLM 0.28.0 on Python 3.11.9.
+The GPU server runs vLLM 0.19.1 on Python 3.11.9 (rolled back from 0.28.0 on 2026-09-04; see
+Hard constraints for why).
 
 ```bash
 # tests — no GPU, no server; these run on a laptop
@@ -44,6 +45,7 @@ python deploy_vlms/scripts/check_vlm.py http://127.0.0.1:8006 qwen3.8-27b
 # health checks
 python deploy_vlms/scripts/check_host_ram.py     # run warm, after models are up
 python deploy_vlms/scripts/check_kv_longctx.py   # 5-10 min, run when idle
+python deploy_vlms/scripts/diagnose_paths.py     # why MODEL_ROOT/MODEL_ID does not resolve; dry-runs the launcher
 ```
 
 Tests live in **two places**: `tests/` (Flask proxy) and beside the code they cover
@@ -82,7 +84,10 @@ three-line shims over `start_model.py`.
 
 `start_model.py` backgrounds it and writes `deploy_vlms/runtime/{logs,pids}/<instance>.{log,pid}`
 (gitignored). `stop_model.py` resolves a target by instance name → PID file → falling back to
-whoever holds the port. 
+whoever holds the port. Instance logs are **append-only**: read the section after the last
+`Launch requested` marker, or you will be diagnosing an earlier run. `SERVE_VLM_DRY_RUN=1` makes
+`serve_vlm.py` run every check and print the vLLM command without starting it; `diagnose_paths.py`
+uses that to show the launcher's own view of the config next to an in-process check.
 
 `AUTO_TUNE_GPU_MEMORY_UTILIZATION` assumes every layer holds KV. Do not enable it for
 `qwen3.8-27b`: 48 of its 64 layers are GatedDeltaNet (linear attention, fixed-size state), so
@@ -173,11 +178,15 @@ timeout blocks in `deploy_vlms/nginx/`.
 - **`vllm` and `torch` are intentionally absent from `pyproject.toml`.** This repo shells out to
   `vllm serve`; the runtime lives in the GPU server's own environment, and declaring them here
   breaks installs on a dev laptop.
-- Server runs **vLLM 0.28.0 / Python 3.11.9** (confirmed 2026-09-04). Comments dated 2026-09-03
-  and earlier were written against 0.19.1 — treat version-specific claims in them as unverified.
+- **Host NVIDIA driver is the 570 branch (CUDA 12.8).** vLLM 0.20.0 switched its PyPI default wheel
+  to CUDA 13.0, and that build dies at torch init with "NVIDIA driver … too old (found version
+  12080)" for every model, before any weight loads. Server runs **vLLM 0.19.1 / Python 3.11.9**,
+  the last PyPI default built for CUDA 12.9 (rolled back from 0.28.0 on 2026-09-04). To go newer
+  without a host driver change: the `+cu129` wheel from the GitHub release with cu129 torch, or
+  NVIDIA's `cuda-compat-13-0` package on `LD_LIBRARY_PATH`. A 580-branch driver removes the limit.
 - `--swap-space` was removed with the V1 engine and caused a startup failure here (2026-08-11).
 - MTP speculative decoding is off for `qwen3.8-27b` on purpose: it crashed above ~26k tokens on
-  0.19.1 (vllm#40756). The 0.28.0 upgrade may have fixed it, but that is **unconfirmed** — do not
+  0.19.1 (vllm#40756), which is the version the server is on again, so the crash is live — do not
   enable it without checking the issue and re-running `check_kv_longctx.py`. Long context is the
   requirement; MTP is only an optimization.
 
