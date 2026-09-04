@@ -9,11 +9,13 @@ stdlib 만 쓰고 `qwen_client.py` 하나를 공유한다. CLI 인자는 없다 
 | `effort_ladder.py` | 과제 7개 × (off / low / medium / xhigh) - 정확도·사고 토큰·시간 | 5-15분 |
 | `stream_thinking.py` | 프롬프트 하나를 스트리밍 - 사고와 답이 갈리는 순간, TTFT | 1분 |
 | `thinking_budget.py` | `thinking_token_budget` 이 먹는지, 어디서 품질이 꺾이는지 | 5분 |
+| `check_tool_call.py` | template 의 도구 호출 형식 + tools 요청 하나가 tool_calls 로 파싱되는지 (RED/GREEN) | 10초 |
 
 ```bash
 python scripts/effort_ladder.py     # 먼저 이걸로 "어느 단계가 기본값이면 되는지" 정한다
 python scripts/stream_thinking.py
 python scripts/thinking_budget.py
+python scripts/check_tool_call.py    # 도구 호출이 파서에서 새면 여기서 RED
 pytest scripts/                     # 서버 없이 요청 조립·응답 해석만 검증
 ```
 
