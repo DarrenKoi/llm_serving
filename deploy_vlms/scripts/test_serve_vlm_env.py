@@ -1,4 +1,4 @@
-"""load_env_file 의 ${VAR} 확장과 저장소 루트 .env 로딩 테스트.
+"""load_env_file 의 ${VAR} 확장과 config/site.env 로딩 테스트.
 
     pytest deploy_vlms/scripts/test_serve_vlm_env.py
 """
@@ -52,12 +52,12 @@ def test_values_without_dollar_are_untouched(tmp_path, monkeypatch):
     assert os.environ["MAX_NUM_SEQS"] == "8"
 
 
-def test_main_reads_repo_root_dotenv_before_config(tmp_path, monkeypatch):
-    """start_all / start_model 은 serve_vlm 을 그대로 부르므로, 여기서 .env 를 읽어야
+def test_main_reads_site_env_before_config(tmp_path, monkeypatch):
+    """start_all / start_model 은 serve_vlm 을 그대로 부르므로, 여기서 site.env 를 읽어야
     셸 export 없이 ${MODEL_ROOT} 가 펼쳐진다."""
     deploy = tmp_path / "deploy_vlms"
     (deploy / "config" / "models").mkdir(parents=True)
-    (tmp_path / ".env").write_text("MODEL_ROOT=/srv/models\n")
+    (deploy / "config" / "site.env").write_text("MODEL_ROOT=/srv/models\n")
     (deploy / "config" / "common.env").write_text("ALLOWED_MODEL_ROOT=${MODEL_ROOT}\n")
     (deploy / "config" / "models" / "x.env").write_text(
         "MODEL_ID=${MODEL_ROOT}/x\nSERVED_MODEL_NAME=x\nPORT=1\nGPU_ID=0\n"
@@ -65,6 +65,7 @@ def test_main_reads_repo_root_dotenv_before_config(tmp_path, monkeypatch):
     # main() 은 os.environ 에 직접 쓴다 - 통째로 갈아끼워 다른 테스트로 새지 않게 한다.
     monkeypatch.setattr(os, "environ", dict(os.environ))
     os.environ.pop("MODEL_ROOT", None)
+    os.environ.pop("SITE_ENV", None)  # conftest 가 끈 로딩을 이 테스트에서만 되살린다
     os.environ["DEPLOY_VLMS_ROOT"] = str(deploy)
     monkeypatch.setattr(sys, "argv", ["serve_vlm.py", "x"])
 
@@ -77,7 +78,7 @@ def test_main_reads_repo_root_dotenv_before_config(tmp_path, monkeypatch):
 
 
 def test_override_false_keeps_existing_keys(tmp_path, monkeypatch):
-    """저장소 루트 .env 는 이 모드로 읽는다 - 셸 export 가 .env 보다 우선."""
+    """config/site.env 는 이 모드로 읽는다 - 셸 export 가 site.env 보다 우선."""
     monkeypatch.setenv("MODEL_ROOT", "/shell")
     serve_vlm.load_env_file(_write(tmp_path, "MODEL_ROOT=/file\n"), override=False)
     assert os.environ["MODEL_ROOT"] == "/shell"

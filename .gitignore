@@ -17,7 +17,9 @@ venv/
 .idea/
 .vscode/
 
-# 비밀값 전용. 설정은 config/*.env 와 스크립트 상단 상수로 간다.
+# 사이트별 값(경로·토큰). 설정은 config/*.env 와 스크립트 상단 상수로 간다.
+deploy_vlms/config/site.env
+# 예전 위치. 남아 있는 파일이 실수로 올라가지 않게 계속 무시한다.
 .env
 
 

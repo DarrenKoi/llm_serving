@@ -16,9 +16,10 @@ Python으로 동일한 기능을 수행한다.
   CONFIG_ROOT=${DEPLOY_VLMS_ROOT}/config
   COMMON_ENV=${CONFIG_ROOT}/common.env
   MODEL_ENV=${CONFIG_ROOT}/models/<instance>.env
+  SITE_ENV=${CONFIG_ROOT}/site.env
 
 참고:
-  - 저장소 루트 .env 가 있으면 가장 먼저 읽는다 (MODEL_ROOT 등 사이트 값).
+  - config/site.env 가 있으면 가장 먼저 읽는다 (MODEL_ROOT 등 사이트 값).
   - common.env를 먼저 읽고 model env를 나중에 읽는다.
   - 따라서 TENSOR_PARALLEL_SIZE, GPU_MEMORY_UTILIZATION, MAX_NUM_SEQS,
     EXTRA_VLLM_ARGS 같은 키도 instance별로 override할 수 있다.
@@ -404,14 +405,14 @@ def main() -> None:
     os.environ["DEPLOY_VLMS_ROOT"] = deploy_vlms_root
     os.environ["CONFIG_ROOT"] = config_root
 
-    # 저장소 루트 .env (MODEL_ROOT 등 사이트 값) 를 config 보다 먼저 읽는다. 아래
+    # config/site.env (MODEL_ROOT 등 사이트 값) 를 common.env 보다 먼저 읽는다. 아래
     # common.env 의 ALLOWED_MODEL_ROOT=${MODEL_ROOT} 와 model env 의 MODEL_ID 가
     # 여기서 펼쳐진다. start_all / start_model 은 이 스크립트를 그대로 부르므로
-    # 셸에서 export 하지 않아도 된다. 이미 export 된 키는 둔다(셸이 .env 보다 우선,
-    # index.py 와 같은 규칙). 없으면 건너뛴다(공개 체크아웃).
-    dotenv = os.path.join(deploy_vlms_root, "..", ".env")
-    if os.path.isfile(dotenv):
-        load_env_file(dotenv, override=False)
+    # 셸에서 export 하지 않아도 된다. 이미 export 된 키는 둔다(셸이 site.env 보다
+    # 우선, flask_api 와 같은 규칙). 없으면 건너뛴다(공개 체크아웃).
+    site_env = env("SITE_ENV") or os.path.join(config_root, "site.env")
+    if os.path.isfile(site_env):
+        load_env_file(site_env, override=False)
 
     # env 파일 로드
     require_env_file(common_env)

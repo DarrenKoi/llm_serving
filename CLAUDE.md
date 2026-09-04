@@ -8,7 +8,8 @@ vLLM serving stack + Flask API proxy for an in-house GPU server (H200 × 2). Spl
 `auto_recipe_creator` on 2026-09-04.
 
 **The repo is public.** All site-specific values are placeholders (`${MODEL_ROOT}`,
-`vlm-host.internal`); real paths and secrets live in the gitignored `.env`. Never commit an
+`vlm-host.internal`); real paths and secrets live in the gitignored
+`deploy_vlms/config/site.env`. Never commit an
 internal hostname or absolute model path — the history was scrubbed once already to remove them.
 
 `README.md` and `docs/README.md` are **deliberately empty** (emptied 2026-09-04 to reduce search
@@ -19,8 +20,9 @@ indexing). Do not repopulate them without being asked. Their content is recovera
 ```bash
 pip install -e ".[dev]"
 
-# serve_vlm.py and index.py both read .env themselves; a shell export wins over it:
-cp .env_example .env      # then fill in MODEL_ROOT and the tokens
+# Site values (MODEL_ROOT, tokens) live inside deploy_vlms/ so they travel with a folder copy.
+# serve_vlm.py and flask_api read the file themselves; a shell export wins over it:
+cp deploy_vlms/config/site.env.example deploy_vlms/config/site.env   # then fill it in
 ```
 
 **pip is the toolchain here, not `uv`** — it is the company standard and `uv` has known issues in
@@ -51,7 +53,7 @@ Tests live in **two places**: `tests/` (Flask proxy) and beside the code they co
 ## Architecture
 
 Two halves that **never import each other**. They meet only through
-`deploy_vlms/config/models/*.env`, which the launcher consumes as config and the Flask health
+`deploy_vlms/config/`: `site.env` (site paths and tokens, read by both) and `models/*.env`, which the launcher consumes as config and the Flask health
 probe reads at runtime to discover what should be running.
 
 ### deploy_vlms/ — process launcher
@@ -59,12 +61,12 @@ probe reads at runtime to discover what should be running.
 `serve_vlm.py <instance>` is the core. It never imports vLLM; it builds an argv and calls
 `os.execvpe`, replacing itself with `vllm serve`. The resolution chain:
 
-1. Load the repo-root `.env` if present, then `config/common.env`, then
+1. Load `config/site.env` if present, then `config/common.env`, then
    `config/models/<instance>.env`.
 2. `load_env_file` **assigns unconditionally** (`os.environ[key] = value`), so config files win
-   over the shell. Exporting `PORT=…` does *not* override a model's config. The repo-root
-   `.env` is the exception: it is loaded with `override=False`, so a shell export beats it.
-3. Values are `os.path.expandvars`-expanded, so `${MODEL_ROOT}` from `.env` flows in. This is the
+   over the shell. Exporting `PORT=…` does *not* override a model's config. `site.env` is the
+   exception: it is loaded with `override=False`, so a shell export beats it.
+3. Values are `os.path.expandvars`-expanded, so `${MODEL_ROOT}` from `site.env` flows in. This is the
    only channel for shell → config. An unresolved var stays literal and trips the `MODEL_ID`
    `isabs` check rather than silently becoming a relative path.
 4. Validate (absolute path, dir exists, under `ALLOWED_MODEL_ROOT`), optionally auto-tune GPU
@@ -89,11 +91,15 @@ comments explaining *why* each value is what it is — read them before changing
 
 ### flask_api/ — reverse proxy, mounted at `/api`
 
-`index.py` (WSGI target, exposes `application`; loads the repo-root `.env` **before** importing
-`web_main`, because `model_upload` snapshots its config at `flask_api` import time) →
-`web_main.py` (builds `app`) →
+`index.py` (WSGI target, exposes `application`) → `web_main.py` (builds `app`) →
 `register_flask_api(app)`. `web_main.py` does nothing but mount the package; put routes in
 `flask_api/`, never in `web_main.py`. Locally: `python index.py` serves on :5000.
+
+Importing `flask_api` runs `load_site_env()`, which copies `deploy_vlms/config/site.env` into
+`os.environ` (fill-only, existing keys win) **before** `model_upload` snapshots its config. That is
+why the GPU server, which receives only `deploy_vlms/` and `flask_api/` copied by hand with no git
+and no shell export, still gets `MODEL_ROOT` and the tokens. `SITE_ENV` overrides the path; the
+root `conftest.py` points it at `os.devnull` so tests never read a developer's real file.
 
 `register_flask_api(app)` is the only entry point. Blueprints nest:
 `/api` → `/api/vlm_serve` → `/api/vlm_serve/<slug>`, plus `/api/model_upload`.
@@ -118,7 +124,7 @@ Adding a model means touching all three, plus the import list in `vlm_serve/__in
 removed outright rather than left disabled — a disabled entry falsely implies flipping the flag
 would revive it, when the checkpoint is actually gone from the server.
 
-`VLM_SERVE_TOKEN` (in `.env`) gates `/api/vlm_serve/<slug>/v1/*` with one shared team token,
+`VLM_SERVE_TOKEN` (in `site.env`) gates `/api/vlm_serve/<slug>/v1/*` with one shared team token,
 checked in a `before_request` on each service blueprint. Empty means auth is **off**, so setting it
 is opt-in and an existing deployment never breaks silently. `home` and `health` stay open for
 monitoring. Callers may send `X-VLM-Token` or `Authorization: Bearer` (the OpenAI client uses the
