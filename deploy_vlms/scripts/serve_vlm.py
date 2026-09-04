@@ -59,7 +59,7 @@ def fail(msg: str) -> None:
 
 def require_file(path: str) -> None:
     if not Path(path).is_file():
-        fail(f"Required file not found: {path}")
+        fail(f"Required file not found: {path!r}")
 
 
 def require_env_file(path: str) -> None:
@@ -72,7 +72,7 @@ def require_env_file(path: str) -> None:
 
 def require_dir(path: str) -> None:
     if not Path(path).is_dir():
-        fail(f"Required directory not found: {path}")
+        fail(f"Required directory not found: {path!r}")
 
 
 def load_env_file(path: str, override: bool = True) -> None:
@@ -419,7 +419,8 @@ def main() -> None:
         load_env_file(site_env, override=False)
     if MODEL_ROOT_FALLBACK:
         os.environ.setdefault("MODEL_ROOT", MODEL_ROOT_FALLBACK)
-    # 로그만 보고 어디서 값이 왔는지 알 수 있게 한다.
+    # 로그만 보고 어느 파일을 읽었고 값이 어디서 왔는지 알 수 있게 한다.
+    log(f"config: root={config_root} common={common_env} model={model_env}")
     log(
         f"site env: {site_env} ({'loaded' if os.path.isfile(site_env) else 'missing'}), "
         f"MODEL_ROOT={os.environ.get('MODEL_ROOT', '<unset>')}"
@@ -667,6 +668,11 @@ def main() -> None:
     log(f"STRICT_OFFLINE={strict_offline} DISABLE_OUTBOUND_PROXIES={disable_outbound_proxies}")
     log(f"HF_HUB_OFFLINE=1 HF_HUB_DISABLE_TELEMETRY=1")
     log(f"VLLM_DO_NOT_TRACK=1 VLLM_NO_USAGE_STATS=1")
+
+    # 진단용: 검증과 argv 조립까지만 하고 vllm 은 띄우지 않는다 (diagnose_paths.py 가 쓴다).
+    if env_flag("SERVE_VLM_DRY_RUN"):
+        log(f"DRY RUN - 여기서 멈춘다. 실행했을 명령: {shlex.join(cmd)}")
+        return
 
     # vllm 실행 (exec 대체: 현재 프로세스를 대체)
     os.execvpe(cmd[0], cmd, os.environ)
