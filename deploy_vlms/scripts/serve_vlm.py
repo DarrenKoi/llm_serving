@@ -39,6 +39,10 @@ from typing import Any
 
 GIB = 1024 ** 3
 
+# 마지막 수단: site.env 도 셸 export 도 없을 때 쓸 MODEL_ROOT. 비우면 쓰지 않는다.
+# 공개 저장소다 - 실제 경로를 채운 채 커밋하지 말 것(.git/hooks/pre-commit 이 막는다).
+MODEL_ROOT_FALLBACK = ""
+
 
 def log(msg: str) -> None:
     print(f"[INFO] {msg}")
@@ -413,6 +417,13 @@ def main() -> None:
     site_env = env("SITE_ENV") or os.path.join(config_root, "site.env")
     if os.path.isfile(site_env):
         load_env_file(site_env, override=False)
+    if MODEL_ROOT_FALLBACK:
+        os.environ.setdefault("MODEL_ROOT", MODEL_ROOT_FALLBACK)
+    # 로그만 보고 어디서 값이 왔는지 알 수 있게 한다.
+    log(
+        f"site env: {site_env} ({'loaded' if os.path.isfile(site_env) else 'missing'}), "
+        f"MODEL_ROOT={os.environ.get('MODEL_ROOT', '<unset>')}"
+    )
 
     # env 파일 로드
     require_env_file(common_env)

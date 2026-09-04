@@ -14,6 +14,8 @@ from flask import Blueprint
 from .routes import create_model_upload_blueprint
 from .store import UploadStore
 
+# 마지막 수단: MODEL_UPLOAD_ROOT 도 ALLOWED_MODEL_ROOT 도 없을 때의 목적지.
+# 공개 저장소다 - 실제 경로를 채운 채 커밋하지 말 것(.git/hooks/pre-commit 이 막는다).
 DEFAULT_DEST_ROOT = "/path/to/models"
 STAGING_DIRNAME = ".upload_staging"
 DEFAULT_MAX_CHUNK_MB = 64
