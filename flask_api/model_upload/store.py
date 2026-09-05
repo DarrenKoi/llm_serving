@@ -10,7 +10,7 @@ import os
 import re
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import BinaryIO
+from typing import IO
 
 READ_BLOCK_BYTES = 1024 * 1024
 
@@ -308,7 +308,7 @@ class UploadStore:
         self,
         upload_id: str,
         offset: int,
-        stream: BinaryIO,
+        stream: IO[bytes],
         length: int,
         chunk_sha256: str,
     ) -> UploadSession:

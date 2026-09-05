@@ -18,6 +18,7 @@ from flask_api.model_upload.store import UploadStore
 _SPEC = importlib.util.spec_from_file_location(
     "upload_model_e2e", Path(__file__).with_name("upload_model.py")
 )
+assert _SPEC and _SPEC.loader  # spec_from_file_location 은 Optional 을 낸다
 upload_model = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(upload_model)
 

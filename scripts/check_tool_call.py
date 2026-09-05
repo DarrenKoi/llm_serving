@@ -16,6 +16,7 @@ RED/GREEN 을 마지막 줄에 찍는다. GPU 서버에서 돈다 (BASE_URL 은 
 import json
 import sys
 import urllib.error
+from typing import Any
 
 from qwen_client import MODEL, _open
 
@@ -36,7 +37,7 @@ MESSAGES = [{"role": "user", "content": "서울 날씨 알려줘. 반드시 get_
 PROMPT_TAIL_CHARS = 1500  # 렌더링된 프롬프트에서 뒤에서부터 보여줄 글자 수
 
 
-def _post(path, payload):
+def _post(path, payload) -> tuple[int, Any]:
     try:
         with _open(path, payload) as resp:
             return resp.status, json.loads(resp.read().decode("utf-8"))

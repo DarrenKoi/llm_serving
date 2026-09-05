@@ -16,6 +16,7 @@ import pytest
 _SCRIPTS = Path(__file__).resolve().parent
 sys.path.insert(0, str(_SCRIPTS))
 _SPEC = importlib.util.spec_from_file_location("start_all", _SCRIPTS / "start_all.py")
+assert _SPEC and _SPEC.loader  # spec_from_file_location 은 Optional 을 낸다
 start_all = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(start_all)
 

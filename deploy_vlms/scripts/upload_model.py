@@ -341,7 +341,7 @@ def _human_bytes(value: float) -> str:
     return f"{value:.1f}TB"
 
 
-def _env(name: str, constant, default=""):
+def _env(name: str, constant, default: object = "") -> str:
     """셸 env > 파일 상수 > 코드 기본값. 무시된 상수는 콘솔에 남긴다."""
     import os
 

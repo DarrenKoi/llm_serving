@@ -31,6 +31,8 @@ def get_vlm_logger(name: str | None = None) -> logging.Logger:
 
     desired_path = _log_dir() / "vlm_serve.log"
     for handler in list(root_logger.handlers):
+        if not isinstance(handler, RotatingFileHandler):
+            continue
         if not getattr(handler, FILE_HANDLER_MARKER, False):
             continue
         if Path(handler.baseFilename) == desired_path:

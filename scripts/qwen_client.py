@@ -31,7 +31,7 @@ import os
 import time
 import urllib.error
 import urllib.request
-from typing import Iterator, NamedTuple
+from typing import Any, Iterator, NamedTuple
 
 # ── 인자는 여기 있다 (이 저장소는 CLI 플래그를 쓰지 않는다) ────────────────
 BASE_URL = "http://127.0.0.1:8006"
@@ -69,7 +69,7 @@ class Reply(NamedTuple):
         return message
 
 
-def image_part(path):
+def image_part(path) -> dict[str, Any]:
     """이미지 파일 하나 -> OpenAI 식 image_url 콘텐츠 파트 (base64 data URL)."""
     mime = mimetypes.guess_type(str(path))[0] or "image/png"
     with open(path, "rb") as f:
@@ -77,7 +77,7 @@ def image_part(path):
     return {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}}
 
 
-def user_message(text, *image_paths):
+def user_message(text, *image_paths) -> dict[str, Any]:
     """텍스트 + 이미지 0~N 장을 담은 user 메시지. 이미지가 없으면 content 는 문자열 그대로다."""
     if not image_paths:
         return {"role": "user", "content": text}

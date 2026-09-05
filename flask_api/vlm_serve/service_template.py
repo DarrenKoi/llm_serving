@@ -16,6 +16,7 @@ from hmac import compare_digest
 
 import requests
 from flask import Blueprint, Response, jsonify, request
+from requests.structures import CaseInsensitiveDict
 
 from .logger import get_vlm_logger
 
@@ -146,7 +147,7 @@ def _build_upstream_headers() -> dict[str, str]:
     return headers
 
 
-def _build_response_headers(upstream_headers: requests.structures.CaseInsensitiveDict) -> list[tuple[str, str]]:
+def _build_response_headers(upstream_headers: CaseInsensitiveDict) -> list[tuple[str, str]]:
     """Flask 응답으로 넘길 헤더를 정리한다."""
     blocked_headers = {
         "content-length",

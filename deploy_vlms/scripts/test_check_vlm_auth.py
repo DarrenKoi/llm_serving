@@ -18,6 +18,7 @@ import pytest
 _SCRIPTS = Path(__file__).resolve().parent
 sys.path.insert(0, str(_SCRIPTS))
 _SPEC = importlib.util.spec_from_file_location("check_vlm", _SCRIPTS / "check_vlm.py")
+assert _SPEC and _SPEC.loader  # spec_from_file_location 은 Optional 을 낸다
 check_vlm = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(check_vlm)
 
@@ -31,8 +32,8 @@ def captured(monkeypatch):
         def __enter__(self):
             return self
 
-        def __exit__(self, *exc):
-            return False
+        def __exit__(self, *exc: object) -> None:
+            return None
 
     def fake_urlopen(request, timeout=None):
         seen["request"] = request

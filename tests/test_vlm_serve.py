@@ -2,7 +2,9 @@
 
 import json
 import logging
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
+from typing import Any
 
 import pytest
 from flask import Flask
@@ -121,7 +123,7 @@ def test_deploy_model_env_root_defaults_to_repo_deploy_vlms(monkeypatch):
 
 
 def test_models_proxy_uses_expected_upstream(monkeypatch):
-    captured: dict[str, object] = {}
+    captured: dict[str, Any] = {}
 
     def fake_request(**kwargs):
         captured.update(kwargs)
@@ -144,7 +146,7 @@ def test_models_proxy_uses_expected_upstream(monkeypatch):
 
 
 def test_chat_proxy_injects_upstream_api_key(monkeypatch):
-    captured: dict[str, object] = {}
+    captured: dict[str, Any] = {}
 
     def fake_request(**kwargs):
         captured.update(kwargs)
@@ -191,7 +193,7 @@ def test_chat_proxy_replaces_caller_authorization_with_upstream_key(monkeypatch)
     프록시를 두는 이유다. 호출자 헤더를 그대로 넘기면 vLLM 이 --api-key 를 켠 순간
     401 이 나고, 증상은 "프록시가 죽었다"로 보인다. VLM_SERVE_TOKEN 없이도 성립해야 한다.
     """
-    captured: dict[str, object] = {}
+    captured: dict[str, Any] = {}
 
     def fake_request(**kwargs):
         captured.update(kwargs)
@@ -324,7 +326,8 @@ def test_get_vlm_logger_creates_log_dir(monkeypatch, tmp_path):
     file_handlers = [
         handler
         for handler in root_logger.handlers
-        if getattr(handler, vlm_logger_module.FILE_HANDLER_MARKER, False)
+        if isinstance(handler, RotatingFileHandler)
+        and getattr(handler, vlm_logger_module.FILE_HANDLER_MARKER, False)
     ]
 
     assert len(file_handlers) == 1
@@ -363,7 +366,7 @@ def _ok_response(*_args, **kwargs):
     )
 
 
-_CAPTURED: dict[str, object] = {}
+_CAPTURED: dict[str, Any] = {}
 
 
 @pytest.fixture
@@ -472,7 +475,7 @@ def test_base_url_override_works_for_dotted_slug(monkeypatch):
     """
     monkeypatch.setenv("VLM_SERVE_QWEN3_8_27B_BASE_URL", "http://127.0.0.1:8106")
 
-    captured: dict[str, object] = {}
+    captured: dict[str, Any] = {}
 
     def fake_request(**kwargs):
         captured.update(kwargs)
