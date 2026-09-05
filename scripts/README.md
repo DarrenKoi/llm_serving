@@ -34,7 +34,10 @@ pytest scripts/                     # 서버 없이 요청 조립·응답 해석
 
 ### 2. 추론 강도 - `chat_template_kwargs.reasoning_effort` = `low` · `medium` · `xhigh`
 
-기본 **xhigh**. 이건 상한이 아니라 **프롬프트 문구**다 - template 이 시스템 프롬프트에
+기본 **medium**. 원래 template 기본값은 xhigh 인데, `qwen3.8-27b.env` 가
+`--default-chat-template-kwargs '{"reasoning_effort": "medium"}'` 로 medium 을 깔아 둔다
+(코딩 하네스가 이 필드를 안 보내기 때문 - 아래 "코딩 하네스" 절). 요청이 보낸
+`chat_template_kwargs` 는 이 기본값을 덮는다. 이건 상한이 아니라 **프롬프트 문구**다 - template 이 시스템 프롬프트에
 "Reasoning effort is set to xhigh. Please think carefully…" 또는 "…low. Keep your thinking
 brief…" 를 넣을 뿐이다(medium 은 아무 문구도 안 넣는다). 그래서 low 라도 어려운 문제엔
 길게 생각할 수 있다. 강제 상한은 3번이다.
@@ -91,14 +94,131 @@ reply = chat([user_message("두 화면의 차이를 설명해라.", "before.png"
   `chat_template_kwargs.preserve_thinking=false`.
 - **`usage` 에 사고 토큰이 따로 없다.** 스크립트는 `/tokenize` 로 `reasoning` 문자열을
   다시 세서 사고/답을 나눈다.
-- **프록시 대신 vLLM 에 직접 붙는다**(`127.0.0.1:8006`). `/api/vlm_serve/...` 는 응답을
+- **프록시 대신 vLLM 에 직접 붙는다**(`127.0.0.1:8006`, 다른 장비에선 `<사내IP>:8006`).
+  `common.env` 의 `HOST=0.0.0.0` + `API_KEY` 라 사내에서 바로 닿고 키가 필요하다
+  (`site.env` 의 `VLM_SERVE_UPSTREAM_API_KEY`). `/api/vlm_serve/...` 는 응답을
   끝까지 버퍼링하고 read timeout 이 300s 라, xhigh 로 몇 분씩 생각하는 요청이 HTTP 경로
   때문에 끊긴다. 프록시로 가려면 `BASE_URL` 을 `http://<flask>/api/vlm_serve/qwen3.8-27b`
   로, 토큰이 있으면 `TOKEN` 을 채운다.
-- **tool calling** 을 켜려면 `EXTRA_VLLM_ARGS` 에 `--enable-auto-tool-choice
-  --tool-call-parser qwen3_coder` 를 붙인다(vLLM 공식 레시피, 0.19.1 에 파서 있음).
-  template 의 tool 포맷이 `<tool_call><function=…><parameter=…>` 라 `qwen3_coder` 가 맞다.
+- **tool calling** 은 이미 켜져 있다 - `EXTRA_VLLM_ARGS` 의 `--enable-auto-tool-choice
+  --tool-call-parser qwen3_xml`. template 의 tool 포맷이 `<tool_call><function=…><parameter=…>`
+  라 XML 파서여야 한다(`hermes` 는 JSON 전용이라 못 쓴다). 코딩 하네스는 전부 이걸 쓴다.
 - **1M 컨텍스트**는 `--max-model-len 1010000 --hf-overrides '{"text_config":
   {"max_position_embeddings": 1010000}}'` 로 열린다. fp8 KV 기준 시퀀스당 32GiB 라
   `MAX_NUM_SEQS` 를 2 이하로 내려야 하고, `check_kv_longctx.py` 를 그 길이로 다시 돌려야
   한다. 필요가 생기기 전엔 262144 로 둔다.
+
+## 코딩 하네스 붙이기 (opencode · pi)
+
+`stream: true` 는 서버 설정이 아니라 요청 필드다 - vLLM 은 이미 SSE 를 준다. 켤 것이 없고,
+막는 것은 Flask 프록시 쪽이다(응답을 끝까지 버퍼링한다). 그래서 하네스는 **8006 에 직접** 붙인다.
+프록시(`/api/vlm_serve/...`)는 그동안 그대로 산다 - vLLM 입장에서 HTTP 클라이언트가 하나 늘 뿐이다.
+
+**효 강도는 반드시 `chat_template_kwargs` 로 보낸다.** top-level `reasoning_effort` 는
+0.19.1 에서 `xhigh` → 400, `high` → template `raise_exception` → 500 이다(위 §2 의 함정).
+하네스의 "reasoning effort" UI 가 기본적으로 내보내는 곳이 바로 그 top-level 필드라,
+아래 설정의 핵심은 **그 경로를 끄고 chat_template_kwargs 로 우회시키는 것**이다.
+
+서버가 medium 을 깔아 두므로, 아무것도 설정하지 않아도 하네스는 medium 으로 돈다.
+아래는 사용자가 강도를 **고를 수 있게** 하는 설정이다.
+
+### pi
+
+`compat.thinkingFormat: "chat-template"` 가 정확히 이 용도다. `supportsReasoningEffort: false`
+로 top-level 필드를 막고, `thinkingLevelMap` 으로 pi 의 단계를 모델 어휘(low/medium/xhigh)에 맞춘다.
+
+```jsonc
+{
+  "providers": {
+    "vllm": {
+      "baseUrl": "http://<사내IP>:8006/v1",
+      "api": "openai-completions",
+      "apiKey": "$VLLM_API_KEY",      // site.env 의 VLM_SERVE_UPSTREAM_API_KEY 와 같은 값
+      "compat": {
+        "supportsReasoningEffort": false,   // top-level reasoning_effort 금지 (400/500 함정)
+        "thinkingFormat": "chat-template",
+        "chatTemplateKwargs": {
+          "enable_thinking": { "$var": "thinking.enabled" },
+          "reasoning_effort": { "$var": "thinking.effort", "omitWhenOff": true }
+        },
+        "thinkingTokenBudgetField": "thinking_token_budget"  // --reasoning-config 로 살아 있다
+      },
+      "models": [
+        {
+          "id": "qwen3.8-27b",
+          "name": "Qwen3.8-27B",
+          "reasoning": true,
+          "input": ["text", "image"],
+          "contextWindow": 262144,
+          "maxTokens": 16384,
+          // 모델 어휘는 low/medium/xhigh 뿐이다. pi 의 high/max 를 xhigh 로 접는다.
+          "thinkingLevelMap": {
+            "minimal": "low", "low": "low", "medium": "medium",
+            "high": "xhigh", "xhigh": "xhigh", "max": "xhigh"
+          },
+          "samplingParams": { "temperature": 1.0, "top_p": 0.95, "top_k": 20 }
+        }
+      ]
+    }
+  }
+}
+```
+
+### opencode
+
+`body` 가 요청 본문에 JSON 을 병합한다(provider → model → variant 순으로 덮어쓴다).
+`variants` 로 강도별 항목을 만들면 사용자가 모델 고르듯 고른다.
+
+**`settings.reasoningEffort` 는 쓰지 말 것** - 그게 top-level 필드로 나가는 경로다.
+
+```jsonc
+{
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "vllm": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "vLLM (사내 H200)",
+      "options": {
+        "baseURL": "http://<사내IP>:8006/v1",
+        "apiKey": "{env:VLLM_API_KEY}"
+      },
+      "models": {
+        "qwen3.8-27b": {
+          "name": "Qwen3.8-27B",
+          "limit": { "context": 262144, "output": 16384 },
+          "body": {
+            "chat_template_kwargs": { "enable_thinking": true, "reasoning_effort": "medium" }
+          },
+          "variants": [
+            { "id": "low",   "body": { "chat_template_kwargs": { "reasoning_effort": "low" } } },
+            { "id": "xhigh", "body": { "chat_template_kwargs": { "reasoning_effort": "xhigh" } } },
+            { "id": "nothink", "body": { "chat_template_kwargs": { "enable_thinking": false } } }
+          ]
+        }
+      }
+    }
+  }
+}
+```
+
+버전 주의: `body` 와 `variants` 는 opencode v2 키이고, v2 는 최상위가 `provider` 가 아니라
+`providers` 다. 붙여넣기 전에 `opencode --version` 과 스키마를 확인할 것 - 키 이름이 틀리면
+오류 없이 조용히 무시되고 그냥 기본값으로 돈다.
+
+### 확인
+
+`--api-key` 를 켠 뒤에는 이 디렉토리의 스크립트도 인증이 필요하다. `qwen_client.py` 의 `API_KEY`
+상수가 `VLM_SERVE_UPSTREAM_API_KEY` 를 읽으므로 셸에 export 하거나 상수를 직접 채운다.
+
+```bash
+export VLM_SERVE_UPSTREAM_API_KEY=...   # site.env 와 같은 값
+
+# 서버에서: 이 vLLM 빌드에 인자가 있는지 (없으면 기동이 바로 죽는다 - 로그에 unrecognized arguments)
+vllm serve --help | grep default-chat-template-kwargs
+
+# 사내 어디서든: 인증과 도달 확인
+curl -H "Authorization: Bearer $VLLM_API_KEY" http://<사내IP>:8006/v1/models
+
+# 기본 강도가 medium 으로 깔렸는지 - 사고 토큰 길이로 갈린다
+python scripts/effort_ladder.py
+```

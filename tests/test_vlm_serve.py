@@ -64,8 +64,9 @@ def _clear_vlm_file_handlers() -> None:
             handler.close()
 
 
-def _fake_vlm_health_get(url: str, timeout: float):
-    del timeout
+def _fake_vlm_health_get(url: str, timeout: float, headers=None):
+    # headers 는 업스트림 API_KEY 가 설정됐을 때만 채워진다 (프로브 인증).
+    del timeout, headers
     if url == "http://127.0.0.1:8002/v1/models":
         return DummyHealthResponse(200, {"data": [{"id": "mai-ui-8b"}]})
     if url == "http://127.0.0.1:8004/v1/models":
@@ -180,6 +181,36 @@ def test_chat_proxy_injects_upstream_api_key(monkeypatch):
     assert response.get_json()["choices"][0]["message"]["content"] == "ok"
     assert captured["method"] == "POST"
     assert captured["url"] == "http://127.0.0.1:8002/v1/chat/completions"
+    assert captured["headers"]["Authorization"] == "Bearer internal-key"
+
+
+def test_chat_proxy_replaces_caller_authorization_with_upstream_key(monkeypatch):
+    """호출자가 자기 api_key 를 들고 와도 업스트림에는 업스트림 키가 가야 한다.
+
+    프록시를 쓰는 쪽(auto_recipe_creator/workflow_3)은 업스트림 키를 모른다 - 그게
+    프록시를 두는 이유다. 호출자 헤더를 그대로 넘기면 vLLM 이 --api-key 를 켠 순간
+    401 이 나고, 증상은 "프록시가 죽었다"로 보인다. VLM_SERVE_TOKEN 없이도 성립해야 한다.
+    """
+    captured: dict[str, object] = {}
+
+    def fake_request(**kwargs):
+        captured.update(kwargs)
+        return DummyResponse(status_code=200, body=b'{"ok": true}')
+
+    monkeypatch.setattr("flask_api.vlm_serve.service_template.requests.request", fake_request)
+    monkeypatch.setenv("VLM_SERVE_UPSTREAM_API_KEY", "internal-key")
+    monkeypatch.setenv("VLM_SERVE_TOKEN", "")
+
+    app = _create_test_app()
+    client = app.test_client()
+
+    response = client.post(
+        "/api/vlm_serve/mai-ui/v1/chat/completions",
+        json={"model": "mai-ui-8b", "messages": [{"role": "user", "content": "ping"}]},
+        headers={"Authorization": "Bearer caller-placeholder"},
+    )
+
+    assert response.status_code == 200
     assert captured["headers"]["Authorization"] == "Bearer internal-key"
 
 

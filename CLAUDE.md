@@ -205,13 +205,48 @@ timeout blocks in `deploy_vlms/nginx/`.
 - Client-side reasoning knobs go in `chat_template_kwargs` (`enable_thinking`, `reasoning_effort`
   ∈ low/medium/xhigh). The top-level `reasoning_effort` field is a trap on vLLM 0.19.1 with this
   model (`xhigh` → 400, `high` → template exception → 500). `scripts/qwen_client.py` encodes this.
+  The server default is **medium**, set by `--default-chat-template-kwargs` in `qwen3.8-27b.env`
+  (the chat template's own default is xhigh, which makes coding harnesses that send nothing think
+  for minutes). A request's own `chat_template_kwargs` still wins over it.
+- **`API_KEY` is on and `HOST` is `0.0.0.0`.** vLLM therefore rejects unauthenticated `/v1/*`
+  (`/health` stays open). Anything that probes an upstream must send
+  `Authorization: Bearer <VLM_SERVE_UPSTREAM_API_KEY>` — `check_vlm.upstream_api_key()` and
+  `qwen_client.API_KEY` are the two places that resolve it. A missing header does not surface as
+  401: `start_all.py` reads it as "not up yet" and stops the model.
 
 ## Relationship to auto_recipe_creator
 
-`deploy_vlms/` and `flask_api/` still exist there too — its `web_main.py` imports `flask_api`, and
-the GPU server currently deploys from that checkout. **Until that deployment is repointed here,
-the two copies can diverge; treat `auto_recipe_creator` as live and this repo as staging.**
+**auto_recipe_creator hosts the deployed Flask app. Do not move it.** Its `web_main.py` registers
+`gpu_dashboard_dp` at `/gpu-dashboard` *and* `register_flask_api(app)`, and `poc/workflow_3` calls
+that deployment's `/api` for all three models. Live work depends on it.
+
+**This repo is where `deploy_vlms/` and `flask_api/` are authored** (decided 2026-09-05). Sync is
+one-way: changes are made here, then ported there. Never the reverse, or there is no rule about
+which copy wins.
+
+**Porting is per-file, never `cp -r`.** The two copies have diverged in *both* directions:
+
+| Only here | Only in auto_recipe_creator |
+|---|---|
+| `flask_api/dashboard.py`, `gpu_status.py`, `templates/` | `flask_api/vlm_serve/mai_ui_2b.py` |
+| `flask_api/__init__.py`'s `load_site_env()` | `gpu_dashboard/` (outside `flask_api`) |
+| `config/site.env`, `site.env.example` | `config/models/mai-ui-2b.env`, `scripts/models/` |
+| `scripts/diagnose_paths.py`, most `test_*.py` | |
+
+Two of those are load-bearing traps when porting config:
+
+- **auto_recipe_creator has no `site.env` and its `flask_api/__init__.py` does not call
+  `load_site_env()`.** Its `common.env` hardcodes `ALLOWED_MODEL_ROOT` instead. So this repo's
+  `API_KEY=${VLM_SERVE_UPSTREAM_API_KEY}` copied there stays an **unexpanded literal** — vLLM comes
+  up demanding a key nobody can produce, and the Flask process never learns one either. Either port
+  `load_site_env()` + create a `site.env` there, or write literal values into that repo's own
+  `common.env`.
+- Copying this repo's `flask_api/` wholesale drops `mai_ui_2b` and can break that app's imports.
 
 The client-side registry (`poc/workflow_3/vlm/flask_vlm.py`) stays there and is deliberately
 *not* duplicated here — it is kept separate from the server registry in
 `flask_api/vlm_serve/config.py`.
+
+**Deployment lever:** `uwsgi.ini` on the GPU server, and only that — there are no systemd rights,
+and the file is version-controlled in neither repo. Any restart or repoint advice has to fit
+inside editing that one file.

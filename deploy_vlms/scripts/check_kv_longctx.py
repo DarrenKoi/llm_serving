@@ -32,6 +32,10 @@ import random
 import sys
 import urllib.error
 import urllib.request
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from check_vlm import upstream_api_key  # noqa: E402  (같은 디렉토리, start_all 과 같은 방식)
 
 
 # ── 인자는 여기 있다 (이 저장소는 CLI 플래그를 쓰지 않는다) ────────────────
@@ -88,11 +92,20 @@ def count_tokens(text):
     return body.get("count")
 
 
+def _headers():
+    """vLLM 이 --api-key 로 떠 있으면 /v1/* 에 인증이 필요하다 (check_vlm 과 같은 출처)."""
+    headers = {"Content-Type": "application/json"}
+    api_key = upstream_api_key()
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    return headers
+
+
 def post_json(path, payload):
     request = urllib.request.Request(
         f"{BASE_URL.rstrip('/')}{path}",
         data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
+        headers=_headers(),
         method="POST",
     )
     with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT_SEC) as response:

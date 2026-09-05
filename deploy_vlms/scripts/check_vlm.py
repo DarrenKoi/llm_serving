@@ -8,6 +8,7 @@ config/models/*.env 파일에서 PORT와 SERVED_MODEL_NAME을 읽어
   python check_vlm.py 10.0.0.5   # 특정 호스트의 모든 모델 확인
 """
 
+import os
 import sys
 import json
 import urllib.request
@@ -49,11 +50,34 @@ def discover_models(config_dir: Path) -> list[dict]:
     return models
 
 
+def upstream_api_key() -> str:
+    """업스트림 vLLM 인증 키를 찾는다. 셸 export 가 site.env 보다 우선한다.
+
+    `--api-key` 를 켜면 vLLM 은 `/v1/*` 를 전부 막는다(`/health` 만 열려 있다).
+    이 함수가 없으면 아래 프로브가 401 을 받고, start_all.py 는 그걸 "아직 안 떴다"로
+    읽어 READY_TIMEOUT 뒤에 모델을 **중지시킨다** - 기동이 통째로 실패한다.
+    """
+    shell_value = os.environ.get("VLM_SERVE_UPSTREAM_API_KEY", "").strip()
+    if shell_value:
+        return shell_value
+    site_env = Path(
+        os.environ.get("SITE_ENV", "").strip()
+        or Path(__file__).resolve().parent.parent / "config" / "site.env"
+    )
+    if not site_env.is_file():
+        return ""
+    return read_env_value(site_env, "VLM_SERVE_UPSTREAM_API_KEY").strip()
+
+
 def check_model(host: str, port: int, expected_name: str) -> tuple[bool, str]:
     """vLLM /v1/models 엔드포인트를 호출해 모델 존재 여부를 확인한다."""
     url = f"http://{host}:{port}/v1/models"
+    api_key = upstream_api_key()
+    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
     try:
-        with urllib.request.urlopen(url, timeout=5) as resp:
+        with urllib.request.urlopen(
+            urllib.request.Request(url, headers=headers), timeout=5
+        ) as resp:
             raw = resp.read().decode("utf-8")
     except (urllib.error.URLError, urllib.error.HTTPError, OSError) as e:
         return False, str(e)

@@ -157,7 +157,15 @@ def _probe_service(entry: dict[str, Any]) -> dict[str, Any]:
     health_url = f"{str(upstream_base_url).rstrip('/')}/v1/models"
     entry["probe_url"] = health_url
     try:
-        response = requests.get(health_url, timeout=_health_timeout_sec())
+        # vLLM 이 --api-key 로 떠 있으면 /v1/* 는 인증을 요구한다. 키가 없으면
+        # 살아 있는 모델이 401 때문에 unreachable 로 보고돼 대시보드가 통째로 빨개진다.
+        upstream_api_key = os.environ.get("VLM_SERVE_UPSTREAM_API_KEY", "").strip()
+        probe_headers = (
+            {"Authorization": f"Bearer {upstream_api_key}"} if upstream_api_key else None
+        )
+        response = requests.get(
+            health_url, headers=probe_headers, timeout=_health_timeout_sec()
+        )
     except requests.RequestException as exc:
         entry["health_status"] = "unreachable"
         entry["reason"] = str(exc)

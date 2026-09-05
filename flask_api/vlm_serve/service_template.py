@@ -168,19 +168,25 @@ def _build_upstream_headers() -> dict[str, str]:
         "transfer-encoding",
         "accept-encoding",
     }
-    # 공용 토큰을 쓰는 중이면 클라이언트의 Authorization 은 **이 프록시에게** 온 것이다.
-    # 그대로 넘기면 vLLM 이 API_KEY 를 켰을 때 엉뚱한 키가 도착해 401 이 난다.
-    # 여기서 지우면 아래 주입 로직이 upstream 용 키를 제대로 채운다.
-    if _shared_token():
+    default_api_key = os.environ.get("VLM_SERVE_UPSTREAM_API_KEY", "").strip()
+
+    # 호출자의 Authorization 은 **이 프록시에게** 온 것이다 (VLM_SERVE_TOKEN, 또는 OpenAI
+    # 클라이언트가 어쩔 수 없이 채워 보내는 아무 값). 업스트림 키는 프록시의 구현 세부이므로
+    # 둘 중 하나라도 쓰는 중이면 호출자 헤더를 그대로 넘기지 않는다.
+    #
+    # 이 조건에 default_api_key 가 없으면, 토큰을 안 쓰는 배포에서 호출자가 보낸 아무 키가
+    # vLLM 까지 흘러가 401 이 난다. 프록시를 쓰는 쪽(auto_recipe_creator/workflow_3)은
+    # 업스트림 키를 알 필요가 없어야 한다 - 그게 프록시를 두는 이유다.
+    if _shared_token() or default_api_key:
         blocked_headers.add("authorization")
+
     headers = {
         key: value
         for key, value in request.headers.items()
         if key.lower() not in blocked_headers
     }
 
-    default_api_key = os.environ.get("VLM_SERVE_UPSTREAM_API_KEY", "").strip()
-    if default_api_key and "authorization" not in {key.lower() for key in headers}:
+    if default_api_key:
         headers["Authorization"] = f"Bearer {default_api_key}"
 
     return headers

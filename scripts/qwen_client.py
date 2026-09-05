@@ -27,6 +27,7 @@ http://<flask>/api/vlm_serve/qwen3.8-27b 로 바꾸고 TOKEN 을 채운다.
 import base64
 import json
 import mimetypes
+import os
 import time
 import urllib.error
 import urllib.request
@@ -36,6 +37,9 @@ from typing import Iterator, NamedTuple
 BASE_URL = "http://127.0.0.1:8006"
 MODEL = "qwen3.8-27b"
 TOKEN = ""  # 프록시 경유 + VLM_SERVE_TOKEN 설정 시에만 채운다
+# vLLM 이 --api-key 로 떠 있으면 8006 직결도 인증을 요구한다 (/v1/* 전부, /health 만 열림).
+# site.env 의 VLM_SERVE_UPSTREAM_API_KEY 와 같은 값이다. 셸에 export 하거나 여기 직접 채운다.
+API_KEY = os.environ.get("VLM_SERVE_UPSTREAM_API_KEY", "").strip()
 REQUEST_TIMEOUT_SEC = 1800.0  # xhigh 는 한 요청이 몇 분씩 간다
 
 # 모델 카드(Qwen/Qwen3.8-27B) 권장 샘플링. thinking 이면 전자, 끄면 후자.
@@ -105,6 +109,8 @@ def _headers():
     headers = {"Content-Type": "application/json"}
     if TOKEN:
         headers["X-VLM-Token"] = TOKEN
+    if API_KEY:
+        headers["Authorization"] = f"Bearer {API_KEY}"
     return headers
 
 
