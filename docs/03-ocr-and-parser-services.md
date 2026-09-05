@@ -27,7 +27,7 @@ Bring-up path:
 
 ```bash
 cd /path/to/deploy_vlms
-python scripts/start_paddleocr_vl.py
+python scripts/start_model.py paddleocr-vl-1.5
 python scripts/check_vlm.py http://127.0.0.1:8004 paddleocr-vl-1.5
 ```
 

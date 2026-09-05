@@ -81,7 +81,7 @@ H100 GPU 1: MAI-UI + PaddleOCR-VL + GOT-OCR
 
 ## 4. H100용 권장 설정
 
-H200 설정을 그대로 쓰지 않는다. 특히 `GPU_TOTAL_MEMORY_GIB=140`은 H100에서 잘못된 sizing을 만든다.
+H200 설정을 그대로 쓰지 않는다. `GPU_MEMORY_UTILIZATION` 은 절대값이 아니라 비율이라 80GB 에서는 같은 숫자가 훨씬 작은 메모리다.
 
 H100 80GB 기준 시작 설정:
 

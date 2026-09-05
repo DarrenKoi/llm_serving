@@ -172,10 +172,9 @@ O(n^2) 이므로 계산해 둔 것을 캐싱한다. 그게 KV cache 다.
 | qwen3.8-27b (16/64 층) | 32 KiB | 8 GiB | 30.8 GiB |
 | *가상의 dense 27B (64/64 층)* | *128 KiB* | *32 GiB* | *123 GiB (안 들어감)* |
 
-**주의:** `serve_vlm.py` 의 `estimate_kv_cache_bytes_per_token()` 은 `num_hidden_layers`
-전부가 KV 를 든다고 계산한다. 이 모델에서는 ~4배 과대평가라서 AUTO_TUNE 을 켜면
-"안 들어간다" 며 기동을 막는다. `qwen3.8-27b.env` 가 AUTO_TUNE 을 끄고 `u` 를
-직접 박은 이유다.
+**주의:** "층 수 x 토큰당 KV" 식의 일반 공식은 이 모델에서 ~4배 과대평가다. 예전
+`serve_vlm.py` 의 auto-tune 이 바로 그 공식이라 "안 들어간다" 며 기동을 막았고, 그래서
+2026-09-05 에 auto-tune 을 없앴다. `GPU_MEMORY_UTILIZATION` 은 항상 실측으로 직접 박는다.
 
 ---
 

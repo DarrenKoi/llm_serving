@@ -10,9 +10,9 @@
 
 ## 1. 하드웨어 기준
 
-- GPU 서버: **H200 140 GiB × 2** (`common.env: GPU_TOTAL_MEMORY_GIB=140`)
-- 서빙 런타임: vLLM (BF16) + transformers (GOT-OCR)
-- GPU당 예약 오버헤드: `GPU_SHARED_RESERVE_GIB=8`, `GPU_PROCESS_RESERVE_GIB=4`
+- GPU 서버: **H200 140 GiB × 2**
+- 서빙 런타임: vLLM (BF16)
+- GPU당 예약 오버헤드(계산용 가정): 공유 8 GiB, 프로세스당 4 GiB
 
 ## 2. 현재 배포된 서비스 현황
 

@@ -1,7 +1,5 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
 ## What this is
 
 vLLM serving stack + Flask API proxy for an in-house GPU server (H200 × 2). Split out of
@@ -63,40 +61,9 @@ probe reads at runtime to discover what should be running.
 
 ### deploy_vlms/ — process launcher
 
-`serve_vlm.py <instance>` is the core. It never imports vLLM; it builds an argv and calls
-`os.execvpe`, replacing itself with `vllm serve`. The resolution chain:
-
-1. Load `config/site.env` if present, then `config/common.env`, then
-   `config/models/<instance>.env`.
-2. `load_env_file` **assigns unconditionally** (`os.environ[key] = value`), so config files win
-   over the shell. Exporting `PORT=…` does *not* override a model's config. `site.env` is the
-   exception: it is loaded with `override=False`, so a shell export beats it.
-3. Values are `os.path.expandvars`-expanded, so `${MODEL_ROOT}` from `site.env` flows in. This is the
-   only channel for shell → config. An unresolved var stays literal and trips the `MODEL_ID`
-   `isabs` check rather than silently becoming a relative path.
-4. Validate (absolute path, dir exists, under `ALLOWED_MODEL_ROOT`), optionally auto-tune GPU
-   memory from the model's `config.json`, then exec.
-
-`start_all.py` starts models **strictly one at a time**, largest first (`VLLM_MODELS` order,
-`qwen3.8-27b` leading), waiting for each to answer `/v1/models` before the next. This is a host-RAM
-guarantee, not a convenience: weight loading and CUDA-graph capture are each model's RSS peak, and
-overlapping those peaks on a 16 GB swapless host invites the OOM killer. If a model times out while
-still alive it is stopped before the next one starts — `deploy_vlms/scripts/test_start_all.py`
-pins that. Per-model wrappers (`start_qwen.py`, `start_mai_ui.py`, `start_paddleocr_vl.py`) are
-three-line shims over `start_model.py`.
-
-`start_model.py` backgrounds it and writes `deploy_vlms/runtime/{logs,pids}/<instance>.{log,pid}`
-(gitignored). `stop_model.py` resolves a target by instance name → PID file → falling back to
-whoever holds the port. Each launch **rotates** the instance log: the previous run moves to
-`<instance>.log.<timestamp>` and only `LOG_KEEP` (5) rotated files survive, so `<instance>.log`
-is always the current run and a crash's tail is never lost. `SERVE_VLM_DRY_RUN=1` makes
-`serve_vlm.py` run every check and print the vLLM command without starting it; `diagnose_paths.py`
-uses that to show the launcher's own view of the config next to an in-process check.
-
-`AUTO_TUNE_GPU_MEMORY_UTILIZATION` assumes every layer holds KV. Do not enable it for
-`qwen3.8-27b`: 48 of its 64 layers are GatedDeltaNet (linear attention, fixed-size state), so
-auto-tune overestimates KV ~4× and refuses to start. The per-model `.env` files carry long
-comments explaining *why* each value is what it is — read them before changing a number.
+Launcher internals — the env resolution chain, strict one-at-a-time start order, log rotation, and
+why `GPU_MEMORY_UTILIZATION` is always explicit — live in `deploy_vlms/CLAUDE.md`, loaded when
+working under `deploy_vlms/`.
 
 ### flask_api/ — reverse proxy, mounted at `/api`
 
@@ -110,28 +77,23 @@ why the GPU server, which receives only `deploy_vlms/` and `flask_api/` copied b
 and no shell export, still gets `MODEL_ROOT` and the tokens. `SITE_ENV` overrides the path; the
 root `conftest.py` points it at `os.devnull` so tests never read a developer's real file.
 
-`register_flask_api(app)` is the only entry point. Blueprints nest:
-`/api` → `/api/vlm_serve` → `/api/vlm_serve/<slug>`, plus `/api/model_upload`.
-
 The proxy buffers the upstream response fully and returns it verbatim
-(`service_template.py`). Per-service files (`mai_ui.py`, `qwen3_8_27b.py`, …) are ~13-line
-`VLMServiceConfig` declarations over that shared template.
+(`service_template.py`). `vlm_serve/__init__.py` loops over the registry and builds one proxy
+blueprint per entry with `create_vlm_service_blueprint`; there are no per-model files.
 
-**A model's slug is declared in three places and they must agree:**
+**A model's slug is declared in two places and they must agree:**
 
 | Place | Declares |
 |---|---|
-| `flask_api/vlm_serve/config.py` → `ALL_VLM_SERVICES` | port, display name, `enabled` flag |
-| `flask_api/vlm_serve/<model>.py` → `VLMServiceConfig` | port again, blueprint name |
+| `flask_api/vlm_serve/config.py` → `VLM_SERVICES` | slug, display name, upstream port |
 | `deploy_vlms/config/models/<slug>.env` | `PORT` for the actual vLLM process |
 
 The `.env` **filename stem is the slug** — `_configured_vlm_entries()` globs the directory and
 uses `env_path.stem`. Renaming the file silently unregisters the service from health reporting.
-Adding a model means touching all three, plus the import list in `vlm_serve/__init__.py`.
+Adding a model means one line in `config.py` plus the `.env`.
 
-`enabled=False` in `config.py` deregisters the blueprint at import time. Deleted models are
-removed outright rather than left disabled — a disabled entry falsely implies flipping the flag
-would revive it, when the checkpoint is actually gone from the server.
+There is no `enabled` flag. Deleted models are removed outright — a disabled entry would falsely
+imply flipping a flag could revive it, when the checkpoint is actually gone from the server.
 
 `VLM_SERVE_TOKEN` (in `site.env`) gates `/api/vlm_serve/<slug>/v1/*` with one shared team token,
 checked in a `before_request` on each service blueprint. Empty means auth is **off**, so setting it
@@ -147,7 +109,7 @@ when the served model name disagrees with what was configured.
 ### Dashboard at `/` and GPU telemetry
 
 `flask_api/gpu_status.py` shells to `nvidia-smi --query-gpu=... --format=csv,noheader,nounits`
-(same pattern as `serve_vlm.detect_gpu_total_memory_gib`). A missing or failing `nvidia-smi` is a
+A missing or failing `nvidia-smi` is a
 **state, not an error** — it returns `{"available": false, "reason": ...}` so the page still renders
 on a laptop. `[N/A]` fields become `None`, never `0`, so a graph never shows a confident wrong value.
 
@@ -169,13 +131,8 @@ sneaks in. Models are grouped by the `gpu_id` that `vlm_serve` reads from `confi
 
 ### flask_api/model_upload/ — resumable chunked upload
 
-Three layers, deliberately: `store.py` (filesystem + resume state, **knows nothing about HTTP**),
-`routes.py` (Flask wrapper), `config.py` (env wiring). That split is why resume and integrity are
-testable without a running server — keep new logic in `store.py`.
-
-Staging must stay **inside** the destination root so `os.replace` is atomic on one filesystem.
-`MODEL_UPLOAD_ROOT` must be set for the Flask process: it does not read `common.env`, so
-`ALLOWED_MODEL_ROOT` never reaches it. Runbook in `deploy_vlms/UPLOAD.md`, nginx body-size and
+Layering (`store.py` knows nothing about HTTP) and the staging-inside-destination rule live in
+`flask_api/model_upload/CLAUDE.md`. Runbook in `deploy_vlms/UPLOAD.md`, nginx body-size and
 timeout blocks in `deploy_vlms/nginx/`.
 
 ## Hard constraints
@@ -207,7 +164,7 @@ timeout blocks in `deploy_vlms/nginx/`.
   of each entry-point script.
 - Korean docstrings and comments. `deploy_vlms/` scripts print `[INFO]` / `[WARNING]` / `[ERROR]`
   rather than using `logging`; `flask_api/vlm_serve/` goes through `logger.py`
-  (`get_vlm_logger`), and its route stubs keep one-line English docstrings.
+  (`get_vlm_logger`).
 - `config.py` in each package is the single source of truth for that package's registry.
 - Client-side reasoning knobs go in `chat_template_kwargs` (`enable_thinking`, `reasoning_effort`
   ∈ low/medium/xhigh). The top-level `reasoning_effort` field is a trap on vLLM 0.19.1 with this
@@ -231,28 +188,9 @@ that deployment's `/api` for all three models. Live work depends on it.
 one-way: changes are made here, then ported there. Never the reverse, or there is no rule about
 which copy wins.
 
-**Porting is per-file, never `cp -r`.** The two copies have diverged in *both* directions:
-
-| Only here | Only in auto_recipe_creator |
-|---|---|
-| `flask_api/dashboard.py`, `gpu_status.py`, `templates/` | `flask_api/vlm_serve/mai_ui_2b.py` |
-| `flask_api/__init__.py`'s `load_site_env()` | `gpu_dashboard/` (outside `flask_api`) |
-| `config/site.env`, `site.env.example` | `config/models/mai-ui-2b.env`, `scripts/models/` |
-| `scripts/diagnose_paths.py`, most `test_*.py` | |
-
-Two of those are load-bearing traps when porting config:
-
-- **auto_recipe_creator has no `site.env` and its `flask_api/__init__.py` does not call
-  `load_site_env()`.** Its `common.env` hardcodes `ALLOWED_MODEL_ROOT` instead. So this repo's
-  `API_KEY=${VLM_SERVE_UPSTREAM_API_KEY}` copied there stays an **unexpanded literal** — vLLM comes
-  up demanding a key nobody can produce, and the Flask process never learns one either. Either port
-  `load_site_env()` + create a `site.env` there, or write literal values into that repo's own
-  `common.env`.
-- Copying this repo's `flask_api/` wholesale drops `mai_ui_2b` and can break that app's imports.
-
-The client-side registry (`poc/workflow_3/vlm/flask_vlm.py`) stays there and is deliberately
-*not* duplicated here — it is kept separate from the server registry in
-`flask_api/vlm_serve/config.py`.
+**Porting is per-file, never `cp -r`.** The two copies have diverged in *both* directions.
+The divergence table and the two config traps (`site.env`, `API_KEY` expansion) that bite on copy
+are in the `port-to-auto-recipe-creator` skill — load it before porting anything.
 
 **Deployment lever:** `uwsgi.ini` on the GPU server, and only that — there are no systemd rights.
 `deploy_vlms/uwsgi/uwsgi.ini` is the template (three `[SET_ME]` values); `deploy_vlms/nginx/` holds

@@ -4,15 +4,11 @@
   python stop_model.py                # 실행 중인 vLLM 인스턴스 표시
   python stop_model.py <instance>     # 특정 인스턴스 종료 (포트 기준)
   python stop_model.py <port>         # 특정 포트의 인스턴스 종료
-  python stop_model.py --port <port>  # 특정 포트의 인스턴스 종료
   python stop_model.py all            # 모든 등록 인스턴스 종료
-  python stop_model.py <family> <size>
 
 예시:
-  python stop_model.py ui-venus
-  python stop_model.py ui-venus 30b
+  python stop_model.py qwen3.8-27b
   python stop_model.py 8005
-  python stop_model.py --port 8005
   python stop_model.py mai-ui
   python stop_model.py all
 
@@ -82,8 +78,7 @@ def resolve_config_root() -> Path:
 def resolve_runtime_root() -> Path:
     script_dir = Path(__file__).resolve().parent
     deploy_vlms_root = os.environ.get("DEPLOY_VLMS_ROOT", "").strip() or str(script_dir.parent)
-    runtime_root = os.environ.get("RUNTIME_ROOT", "").strip() or os.path.join(deploy_vlms_root, "runtime")
-    return Path(runtime_root)
+    return Path(deploy_vlms_root) / "runtime"
 
 
 def resolve_pid_path(instance: str) -> Path:
@@ -140,14 +135,12 @@ def discover_configured_instances() -> list[tuple[str, str]]:
 
 
 def find_vllm_processes() -> list[dict]:
-    """실행 중인 vLLM 프로세스를 /proc에서 찾는다."""
-    results = []
+    """실행 중인 vLLM 프로세스를 /proc에서 찾는다 (GPU 서버는 리눅스뿐이다)."""
     proc_path = Path("/proc")
-
     if not proc_path.is_dir():
-        # /proc가 없는 경우 (macOS 등) ps 명령 사용
-        return _find_vllm_processes_via_ps()
+        return []
 
+    results = []
     for pid_dir in proc_path.iterdir():
         if not pid_dir.name.isdigit():
             continue
@@ -170,42 +163,6 @@ def find_vllm_processes() -> list[dict]:
                 "served_model_name": served_name,
                 "cmdline": cmdline.strip(),
             })
-    return results
-
-
-def _find_vllm_processes_via_ps() -> list[dict]:
-    """ps 명령으로 vLLM 프로세스를 찾는다 (/proc가 없는 환경용)."""
-    import subprocess
-    try:
-        result = subprocess.run(
-            ["ps", "aux"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        return []
-
-    results = []
-    for line in result.stdout.splitlines():
-        if VLLM_CMDLINE_MARKER not in line:
-            continue
-        parts = line.split()
-        if len(parts) < 2:
-            continue
-        try:
-            pid = int(parts[1])
-        except ValueError:
-            continue
-        cmdline_parts = parts[10:]  # ps aux: USER PID %CPU %MEM VSZ RSS TTY STAT START TIME COMMAND...
-        port = _extract_port_from_cmdline(cmdline_parts)
-        served_name = _extract_served_name_from_cmdline(cmdline_parts)
-        results.append({
-            "pid": pid,
-            "port": port,
-            "served_model_name": served_name,
-            "cmdline": " ".join(cmdline_parts).strip(),
-        })
     return results
 
 
@@ -238,28 +195,11 @@ def build_process_record(
 
 
 def get_cmdline_for_pid(pid: int) -> str:
-    proc_path = Path("/proc") / str(pid) / "cmdline"
-    if proc_path.is_file():
-        try:
-            cmdline_raw = proc_path.read_bytes()
-        except (PermissionError, FileNotFoundError, OSError):
-            cmdline_raw = b""
-        if cmdline_raw:
-            return " ".join(part for part in cmdline_raw.decode("utf-8", errors="replace").split("\0") if part)
-
     try:
-        result = subprocess.run(
-            ["ps", "-p", str(pid), "-o", "command="],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-    except (FileNotFoundError, subprocess.TimeoutExpired):
+        cmdline_raw = (Path("/proc") / str(pid) / "cmdline").read_bytes()
+    except OSError:
         return ""
-
-    if result.returncode != 0:
-        return ""
-    return result.stdout.strip()
+    return " ".join(part for part in cmdline_raw.decode("utf-8", errors="replace").split("\0") if part)
 
 
 def read_live_pid_from_file(instance: str) -> int | None:
@@ -512,16 +452,6 @@ def resolve_cli_target() -> tuple[str, str]:
             return resolve_instance_for_port(port), port
         return token, resolve_port_for_instance(token)
 
-    if len(sys.argv) == 3:
-        first = normalize_token(sys.argv[1])
-        if first in {"port", "--port"}:
-            port = sys.argv[2].strip()
-            if not port.isdigit():
-                fail(f"Invalid port: {sys.argv[2]}")
-            return resolve_instance_for_port(port), port
-        instance = f"{first}-{normalize_token(sys.argv[2])}"
-        return instance, resolve_port_for_instance(instance)
-
     print(__doc__, file=sys.stderr)
     sys.exit(1)
 
@@ -536,7 +466,6 @@ def main() -> None:
             print("Usage:")
             print("  python stop_model.py <instance>   # stop specific instance")
             print("  python stop_model.py <port>       # stop specific port")
-            print("  python stop_model.py --port 8005  # stop specific port")
             print("  python stop_model.py all           # stop all instances")
         return
 

@@ -24,7 +24,6 @@ python index.py     # 또는 기존 WSGI 기동 방식 그대로
 | `MODEL_UPLOAD_ROOT` | `ALLOWED_MODEL_ROOT` env, 없으면 하드코딩된 같은 경로 | 업로드 목적지 루트. **이 밖으로는 절대 쓰지 않는다** |
 | `MODEL_UPLOAD_TOKEN` | (빈값 = 인증 없음) | 설정하면 모든 업로드 요청에 `X-Upload-Token` 필요 |
 | `MODEL_UPLOAD_MAX_CHUNK_MB` | 64 | 청크 하나의 상한 |
-| `MODEL_UPLOAD_STAGING_DIR` | `<root>/.upload_staging` | 받는 중인 `.part` 위치. **반드시 root 와 같은 파일시스템** |
 | `MODEL_UPLOAD_ENABLED` | 1 | 0 이면 엔드포인트를 아예 등록하지 않는다 |
 
 도달성 확인:
@@ -95,9 +94,8 @@ curl -s http://<서버>:<포트>/api/model_upload/health | python3 -m json.tool
    `kubectl get pvc <이름> -o jsonpath='{.spec.accessModes}'`
 3. **`subPath` 를 쓰지 말 것.** 마운트 시점에 경로가 해석되어 "pod 시작 후 생긴 것이
    안 보임" 함정의 단골이다. PVC 를 통째로 마운트하고 앱이 하위 디렉토리를 쓰게 한다.
-4. **staging 이 같은 PVC 안이어야 한다.** `MODEL_UPLOAD_STAGING_DIR` 기본값
-   `<root>/.upload_staging` 이 지켜져야 `os.replace` 가 원자적이다. 파일시스템이
-   다르면 `EXDEV` 로 실패한다.
+4. **staging 은 항상 `<root>/.upload_staging` 이다** (오버라이드 없음). 같은 파일시스템이어야
+   `os.replace` 가 원자적이고, 다르면 `EXDEV` 로 실패하기 때문이다.
 
 용량도 미리 본다 - 27B BF16 이 ~48GB 다.
 `kubectl get pvc <이름> -o jsonpath='{.status.capacity.storage}'`

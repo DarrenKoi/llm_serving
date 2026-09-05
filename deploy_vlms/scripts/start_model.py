@@ -1,4 +1,4 @@
-"""임의 instance 또는 family-size 조합으로 VLM 인스턴스를 시작한다.
+"""instance 이름으로 VLM 인스턴스를 시작한다.
 
 기본 동작은 nohup과 비슷한 백그라운드 실행이다.
 터미널을 닫아도 프로세스가 유지되며 로그/ PID 파일은 `deploy_vlms/runtime/` 아래에 남는다.
@@ -6,12 +6,10 @@
 
 사용법:
   python start_model.py <instance>
-  python start_model.py <family> <size>
 
 예시:
-  python start_model.py ui-venus
-  python start_model.py ui-venus 30b
-  python start_model.py mai-ui-7b
+  python start_model.py qwen3.8-27b
+  python start_model.py mai-ui
 
 환경 변수:
   START_MODEL_LOG_DIR=/path/to/logs
@@ -28,6 +26,7 @@ from stop_model import (
     collect_targets,
     find_listening_pids_by_port,
     find_vllm_processes,
+    normalize_token,
     resolve_port_for_instance,
     stop_instance,
 )
@@ -53,15 +52,9 @@ def fail(msg: str) -> None:
     sys.exit(1)
 
 
-def normalize_token(value: str) -> str:
-    return value.strip().lower().replace("_", "-").replace(" ", "-")
-
-
 def resolve_instance() -> str:
     if len(sys.argv) == 2:
         return normalize_token(sys.argv[1])
-    if len(sys.argv) == 3:
-        return f"{normalize_token(sys.argv[1])}-{normalize_token(sys.argv[2])}"
 
     print(__doc__, file=sys.stderr)
     sys.exit(1)

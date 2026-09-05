@@ -1,11 +1,13 @@
 """VLM 서비스 blueprint template.
 
-이미지 분석 전용 프록시이지만, upstream 이 `stream=true` 에서만
-정상적인 assistant content 를 주는 경우가 있어 서비스별 최소 보정을 허용한다.
-프록시 자체는 upstream 응답을 끝까지 버퍼링한 뒤 그대로 반환한다.
+프록시는 요청 body 를 손대지 않고 넘기고, upstream 응답을 끝까지 버퍼링한 뒤
+그대로 반환한다.
+
+(역사: UI-TARS 가 non-stream 요청에 빈 content 를 주던 시절 force_stream 으로 body 의
+stream 을 강제로 켜는 우회가 있었다. 그 모델과 함께 2026-09-05 에 제거 - 같은 증상이
+다시 나오면 auto_recipe_creator 의 2b1186c/ba15f9c 를 보라.)
 """
 
-import json
 import logging
 import os
 import time
@@ -38,11 +40,9 @@ def env_prefix_for(route_slug: str) -> str:
 class VLMServiceConfig:
     """VLM 서비스 route 설정."""
 
-    blueprint_name: str
     route_slug: str
     display_name: str
     upstream_port: int
-    force_stream: bool = False
 
     @property
     def env_prefix(self) -> str:
@@ -113,52 +113,6 @@ def _presented_token() -> str:
     return ""
 
 
-def _prepare_upstream_body(
-    config: VLMServiceConfig,
-    upstream_path: str,
-    raw_body: bytes,
-    content_type: str,
-) -> bytes:
-    """요청 body 를 upstream 으로 넘기기 전에 필요한 최소 보정만 수행한다."""
-    if not raw_body:
-        return raw_body
-
-    if not config.force_stream:
-        return raw_body
-
-    normalized_path = f"/{upstream_path.lstrip('/')}"
-    if normalized_path != "/v1/chat/completions":
-        return raw_body
-
-    if "json" not in (content_type or "").lower():
-        return raw_body
-
-    try:
-        payload = json.loads(raw_body.decode("utf-8"))
-    except Exception:
-        logger.warning(
-            "could not coerce stream flag service=%s path=%s content_type=%s",
-            config.route_slug,
-            normalized_path,
-            content_type,
-        )
-        return raw_body
-
-    if not isinstance(payload, dict):
-        return raw_body
-
-    if payload.get("stream") is True:
-        return raw_body
-
-    payload["stream"] = True
-    logger.info(
-        "forcing stream=true service=%s path=%s",
-        config.route_slug,
-        normalized_path,
-    )
-    return json.dumps(payload, ensure_ascii=False).encode("utf-8")
-
-
 def _build_upstream_headers() -> dict[str, str]:
     """Hop-by-hop 헤더를 제외한 upstream 요청 헤더를 구성한다."""
     blocked_headers = {
@@ -211,12 +165,7 @@ def _proxy_request(config: VLMServiceConfig, upstream_path: str):
     """현재 요청을 upstream vLLM 으로 프록시한다 (비스트리밍)."""
     upstream_url = f"{config.upstream_base_url.rstrip('/')}/{upstream_path.lstrip('/')}"
     start_time = time.monotonic()
-    request_body = _prepare_upstream_body(
-        config,
-        upstream_path,
-        request.get_data(cache=True),
-        request.content_type or "",
-    )
+    request_body = request.get_data(cache=True)
     request_headers = _build_upstream_headers()
     logger.info(
         "request service=%s method=%s upstream_url=%s",
@@ -277,7 +226,8 @@ def _proxy_request(config: VLMServiceConfig, upstream_path: str):
 
 def create_vlm_service_blueprint(config: VLMServiceConfig) -> Blueprint:
     """VLM 서비스 proxy blueprint 를 생성한다."""
-    service_blueprint = Blueprint(config.blueprint_name, __name__)
+    # blueprint 이름은 slug 에서 유도한다 (mai-ui -> mai_ui, qwen3.8-27b -> qwen3_8_27b).
+    service_blueprint = Blueprint(config.env_prefix.lower(), __name__)
 
     @service_blueprint.before_request
     def _require_shared_token():
@@ -289,7 +239,7 @@ def create_vlm_service_blueprint(config: VLMServiceConfig) -> Blueprint:
         token = _shared_token()
         if not token:
             return None
-        # endpoint 는 "api.vlm_serve.mai_ui_vlm.proxy_v1" 형태라 마지막 조각만 본다.
+        # endpoint 는 "api.vlm_serve.mai_ui.proxy_v1" 형태라 마지막 조각만 본다.
         if (request.endpoint or "").rsplit(".", 1)[-1] in {"home", "health"}:
             return None
         if not compare_digest(_presented_token(), token):

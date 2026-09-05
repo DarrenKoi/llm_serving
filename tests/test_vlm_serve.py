@@ -312,12 +312,10 @@ def test_streaming_chat_proxy_logs_stream_summary(monkeypatch, caplog):
     assert "response service=qwen3.8-27b" in caplog.text
 
 
-def test_get_vlm_logger_creates_cloud_repo_log_dir(monkeypatch, tmp_path):
-    cloud_repo_root = tmp_path / "cloud_repo"
-    expected_log_path = cloud_repo_root / "logs" / "vlm_service" / "vlm_serve.log"
+def test_get_vlm_logger_creates_log_dir(monkeypatch, tmp_path):
+    expected_log_path = tmp_path / "logs" / "vlm_service" / "vlm_serve.log"
 
-    monkeypatch.setenv("VLM_SERVE_REPO_ROOT", str(cloud_repo_root))
-    monkeypatch.delenv("VLM_SERVE_LOG_DIR", raising=False)
+    monkeypatch.setenv("VLM_SERVE_LOG_DIR", str(expected_log_path.parent))
 
     logger = vlm_logger_module.get_vlm_logger("proxy")
     logger.info("cloud repo log smoke test")
@@ -496,8 +494,8 @@ def test_health_reports_same_base_url_as_proxy_uses(monkeypatch):
     """health 가 보고하는 주소와 프록시가 실제로 나가는 주소가 갈리면 안 된다."""
     monkeypatch.setenv("VLM_SERVE_QWEN3_8_27B_BASE_URL", "http://127.0.0.1:8106")
 
-    from flask_api.vlm_serve.qwen3_8_27b import SERVICE_CONFIG
-    from flask_api.vlm_serve import _base_url_for_service
+    from flask_api.vlm_serve import VLM_SERVICE_CONFIGS, _base_url_for_service
 
+    SERVICE_CONFIG = VLM_SERVICE_CONFIGS["qwen3.8-27b"]
     assert SERVICE_CONFIG.upstream_base_url == "http://127.0.0.1:8106"
     assert _base_url_for_service("qwen3.8-27b", 8006) == SERVICE_CONFIG.upstream_base_url

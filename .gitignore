@@ -28,3 +28,6 @@ deploy_vlms/config/site.env
 
 # humanize-korean 작업 산출물 (윤문 중간물). 최종본만 docs/ 에 남긴다.
 _workspace/
+
+# Flask 프록시 런타임 로그 (logger.py 가 만든다). 요청 내용이 섞이므로 추적하지 않는다.
+logs/

@@ -40,9 +40,7 @@ Confirm:
 ```bash
 cd /path/to/deploy_vlms
 
-python scripts/start_ui_venus.py
-python scripts/start_mai_ui.py
-python scripts/start_ui_tars.py
+python scripts/start_model.py mai-ui
 
 python scripts/check_vlm.py http://127.0.0.1:8001 ui-venus-1.5-8b
 python scripts/check_vlm.py http://127.0.0.1:8002 mai-ui-8b
@@ -52,8 +50,7 @@ python scripts/check_vlm.py http://127.0.0.1:8003 ui-tars-1.5-7b
 Generic bring-up is preferred for variants:
 
 ```bash
-python scripts/start_model.py ui-venus 2b
-python scripts/start_model.py ui-venus 30b
+python scripts/start_model.py <slug>
 ```
 
 ## 4. Model-Specific Settings
@@ -120,7 +117,7 @@ Important differences:
 Special handling rule:
 
 - if `CHAT_TEMPLATE` is empty, first rely on the model directory's own template
-- if runtime output or formatting is unstable, test with `deploy_vlms/config/chat_templates/ui-tars.jinja`
+- if runtime output or formatting is unstable, point `CHAT_TEMPLATE` at a `.jinja` file you add under `config/` (the UI-TARS template was removed with its weights, 2026-09-03/05)
 
 ## 5. Repo Role Interpretation
 

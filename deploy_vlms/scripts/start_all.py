@@ -100,9 +100,8 @@ def print_gpu_plan(config_root: Path) -> None:
         port = read_env_value(env_path, "PORT") or "?"
         served_name = read_env_value(env_path, "SERVED_MODEL_NAME") or instance
         gpu_mem = read_env_value(env_path, "GPU_MEMORY_UTILIZATION")
-        auto_tune = read_env_value(env_path, "AUTO_TUNE_GPU_MEMORY_UTILIZATION")
 
-        mem_info = f"u={gpu_mem}" if gpu_mem else ("auto-tune" if auto_tune else "default")
+        mem_info = f"u={gpu_mem}" if gpu_mem else "default"
         entry = f"  {served_name:<25s} port={port:<5s} {mem_info} (vLLM)"
         gpu_map.setdefault(f"GPU {gpu_id}", []).append(entry)
 

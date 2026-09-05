@@ -11,38 +11,12 @@ from typing import Any
 import requests
 from flask import Blueprint, jsonify
 
-from .config import (
-    ALL_VLM_SERVICES,
-    ENABLED_VLM_SERVICES,
-    VLMServiceEntry,
-    get_enabled_slugs,
-)
-from .mai_ui import SERVICE_CONFIG as MAI_UI_CONFIG
-from .mai_ui import service_blueprint as mai_ui_blueprint
-from .paddleocr_vl import SERVICE_CONFIG as PADDLEOCR_VL_CONFIG
-from .paddleocr_vl import service_blueprint as paddleocr_vl_blueprint
-from .qwen3_8_27b import SERVICE_CONFIG as QWEN3_8_27B_CONFIG
-from .qwen3_8_27b import service_blueprint as qwen3_8_27b_blueprint
-from .service_template import env_prefix_for
+from .config import VLM_SERVICES, VLMServiceConfig
+from .service_template import create_vlm_service_blueprint, env_prefix_for
 
 # ── 서비스 blueprint 등록 ─────────────────────────────────────────────
 
-_ALL_SERVICE_BLUEPRINTS = [
-    (MAI_UI_CONFIG, mai_ui_blueprint),
-    (PADDLEOCR_VL_CONFIG, paddleocr_vl_blueprint),
-    (QWEN3_8_27B_CONFIG, qwen3_8_27b_blueprint),
-]
-
-# config.py 의 enabled 플래그에 따라 활성 서비스만 등록
-_enabled_slugs = get_enabled_slugs()
-VLM_SERVICE_BLUEPRINTS = [
-    (cfg, bp) for cfg, bp in _ALL_SERVICE_BLUEPRINTS
-    if cfg.route_slug in _enabled_slugs
-]
-VLM_SERVICE_CONFIGS = {
-    service_config.route_slug: service_config
-    for service_config, _ in VLM_SERVICE_BLUEPRINTS
-}
+VLM_SERVICE_CONFIGS: dict[str, VLMServiceConfig] = {cfg.route_slug: cfg for cfg in VLM_SERVICES}
 
 vlm_serve_blueprint = Blueprint("vlm_serve", __name__)
 
@@ -62,13 +36,8 @@ def _deploy_model_env_root() -> Path:
     return Path(__file__).resolve().parents[2] / "deploy_vlms" / "config" / "models"
 
 
-def _health_timeout_sec() -> float:
-    """VLM health probe timeout 을 반환한다."""
-    raw_value = os.environ.get("VLM_SERVE_HEALTH_TIMEOUT_SEC", "2.0").strip()
-    try:
-        return max(float(raw_value), 0.1)
-    except ValueError:
-        return 2.0
+# 업스트림은 같은 호스트의 loopback 이다. 2초면 "죽었다" 판정으로 충분하다.
+HEALTH_TIMEOUT_SEC = 2.0
 
 
 def _load_env_file(path: Path) -> dict[str, str]:
@@ -164,7 +133,7 @@ def _probe_service(entry: dict[str, Any]) -> dict[str, Any]:
             {"Authorization": f"Bearer {upstream_api_key}"} if upstream_api_key else None
         )
         response = requests.get(
-            health_url, headers=probe_headers, timeout=_health_timeout_sec()
+            health_url, headers=probe_headers, timeout=HEALTH_TIMEOUT_SEC
         )
     except requests.RequestException as exc:
         entry["health_status"] = "unreachable"
@@ -223,7 +192,7 @@ def _configured_vlm_entries() -> list[dict[str, Any]]:
                 "upstream_port": upstream_port,
                 "upstream_base_url": _base_url_for_service(route_slug, upstream_port),
                 "proxy_registered": service_config is not None,
-                "runtime": "openai-compatible" if upstream_port is not None else "local-transformers",
+                "runtime": "openai-compatible",
                 "api_base_path": service_config.api_base_path if service_config is not None else None,
                 "health_path": service_config.health_path if service_config is not None else None,
                 "source_env": str(env_path),
@@ -268,10 +237,7 @@ def build_vlm_health_payload() -> dict[str, Any]:
         "status": "ok",
         "mode": "proxy",
         "base_path": "/api/vlm_serve",
-        "registered_vlms": [
-            service_config.route_slug
-            for service_config, _ in VLM_SERVICE_BLUEPRINTS
-        ],
+        "registered_vlms": list(VLM_SERVICE_CONFIGS),
         "serving_now": [
             item["display_name"]
             for item in serving_entries
@@ -293,30 +259,23 @@ def register_vlm_serve_routes(api_blueprint: Blueprint) -> None:
 
 
 @vlm_serve_blueprint.route("/", methods=["GET"], strict_slashes=False)
-def home():
-    """VLM 상태를 직접 반환하는 기본 엔드포인트."""
-    return jsonify(build_vlm_health_payload())
-
-
 @vlm_serve_blueprint.route("/health", methods=["GET"])
 def health():
-    """VLM 헬스 체크 엔드포인트."""
+    """VLM 헬스 체크 엔드포인트 (`/` 도 같은 payload)."""
     return jsonify(build_vlm_health_payload())
 
 
 # 각 서비스 blueprint 를 vlm_serve 하위에 등록
-for _service_config, _service_blueprint in VLM_SERVICE_BLUEPRINTS:
+for _cfg in VLM_SERVICES:
     vlm_serve_blueprint.register_blueprint(
-        _service_blueprint,
-        url_prefix=f"/{_service_config.route_slug}",
+        create_vlm_service_blueprint(_cfg), url_prefix=f"/{_cfg.route_slug}"
     )
 
 
 __all__ = [
-    "ALL_VLM_SERVICES",
-    "ENABLED_VLM_SERVICES",
-    "VLM_SERVICE_BLUEPRINTS",
-    "VLMServiceEntry",
+    "VLM_SERVICES",
+    "VLM_SERVICE_CONFIGS",
+    "VLMServiceConfig",
     "build_vlm_health_payload",
     "register_vlm_serve_routes",
     "vlm_serve_blueprint",

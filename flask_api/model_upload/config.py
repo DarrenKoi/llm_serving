@@ -43,12 +43,8 @@ def load_upload_config() -> ModelUploadConfig:
         or DEFAULT_DEST_ROOT
     ).expanduser()
 
-    staging_override = os.environ.get("MODEL_UPLOAD_STAGING_DIR", "").strip()
-    staging_root = (
-        Path(staging_override).expanduser()
-        if staging_override
-        else dest_root / STAGING_DIRNAME
-    )
+    # staging 은 오버라이드할 수 없다 - 목적지 루트 안에 있어야 os.replace 가 원자적이다.
+    staging_root = dest_root / STAGING_DIRNAME
 
     max_chunk_mb = int(
         os.environ.get("MODEL_UPLOAD_MAX_CHUNK_MB", str(DEFAULT_MAX_CHUNK_MB)).strip()

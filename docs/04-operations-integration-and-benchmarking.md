@@ -13,10 +13,9 @@ Typical commands:
 ```bash
 cd /path/to/deploy_vlms
 
-python scripts/start_ui_venus.py
-python scripts/start_mai_ui.py
-python scripts/check_vlm.py http://127.0.0.1:8001 ui-venus-1.5-8b
-tail -f runtime/logs/ui-venus.log
+python scripts/start_model.py mai-ui
+python scripts/check_vlm.py http://127.0.0.1:8002 mai-ui-8b
+tail -f runtime/logs/mai-ui.log
 python scripts/stop_model.py ui-venus
 ```
 

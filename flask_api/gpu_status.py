@@ -1,7 +1,6 @@
 """nvidia-smi 로 GPU 상태를 읽어 대시보드에 넘긴다.
 
-serve_vlm.py 의 detect_gpu_total_memory_gib 와 같은 방식이다 - csv,noheader,nounits
-로 물어보고 nvidia-smi 가 없으면 조용히 물러난다. 개발 PC 에는 GPU 가 없으므로
+csv,noheader,nounits 로 물어보고 nvidia-smi 가 없으면 조용히 물러난다. 개발 PC 에는 GPU 가 없으므로
 '없음' 이 에러가 아니라 정상 상태의 하나여야 한다.
 """
 
@@ -104,14 +103,9 @@ def build_gpu_status_payload() -> dict[str, Any]:
 
 
 @gpu_status_blueprint.route("/", methods=["GET"], strict_slashes=False)
-def home():
-    """GPU 스냅샷."""
-    return jsonify(build_gpu_status_payload())
-
-
 @gpu_status_blueprint.route("/health", methods=["GET"])
 def health():
-    """GPU 상태 헬스 체크."""
+    """GPU 스냅샷 / 헬스 체크 (같은 payload)."""
     return jsonify(build_gpu_status_payload())
 
 

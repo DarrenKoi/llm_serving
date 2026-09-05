@@ -112,31 +112,16 @@ If a model needs adaptation:
 
 ## 6. Capacity Planning
 
-When colocating small models, do not guess `GPU_MEMORY_UTILIZATION`.
+`GPU_MEMORY_UTILIZATION` is always an explicit per-model value; the launcher's auto-sizing was
+removed on 2026-09-05 (it assumed every layer holds KV, ~4x wrong for GatedDeltaNet models).
+Size by hand as `weights + KV(max_model_len x max_num_seqs x bytes/token) + headroom`, and
+write the reasoning as a comment next to the number in `config/models/<slug>.env`.
 
-Practical rule:
-
-`u_recommended = ((M_gpu - M_shared) / N_models - M_proc) / M_gpu`
-
-Typical H200 starting points:
-
-- two 8B-class models on one GPU: about `0.44`
-- three 8B-class models on one GPU: about `0.29`
-
-If automatic sizing fails:
+When a model does not fit:
 
 1. reduce `MAX_NUM_SEQS`
 2. reduce `MAX_MODEL_LEN`
 3. only then consider more aggressive runtime flags
-
-Useful knobs:
-
-```bash
-AUTO_TUNE_GPU_MEMORY_UTILIZATION=1
-COLOCATED_MODELS_PER_GPU=2
-GPU_SHARED_RESERVE_GIB=8
-GPU_PROCESS_RESERVE_GIB=4
-```
 
 ## 7. Host RAM Matters
 
@@ -168,13 +153,8 @@ tail -n 200 deploy_vlms/runtime/logs/<instance>.log
 
 ## 8. Multi-Size Variants
 
-Use the generic scripts when comparing families by size:
-
-```bash
-python deploy_vlms/scripts/prepare_variant_envs.py ui-venus
-python deploy_vlms/scripts/start_model.py ui-venus 2b
-python deploy_vlms/scripts/start_model.py ui-venus 30b
-```
+To compare sizes of one family, write one `config/models/<slug>.env` per size and start each
+with `python deploy_vlms/scripts/start_model.py <slug>`.
 
 Use model-specific overrides for:
 
