@@ -7,7 +7,10 @@ index.py(WSGI)가 여기서 app 을 가져간다.
 접두어도 거기서 정한다 - 여기에 라우트를 직접 붙이지 말 것.
 """
 
+from typing import cast
+
 from flask import Flask
+from flask.json.provider import DefaultJSONProvider
 
 from flask_api import register_dashboard, register_flask_api
 
@@ -21,8 +24,10 @@ def create_app() -> Flask:
     #     \uXXXX 로 이스케이프돼서 curl 로 볼 때 사실상 못 읽는다.
     #   sort_keys=False    : /api/health 페이로드는 사람이 눈으로 읽는 순서대로
     #     조립돼 있다. 알파벳 정렬하면 그 구조가 흩어진다.
-    app.json.ensure_ascii = False
-    app.json.sort_keys = False
+    # app.json 은 JSONProvider 로만 선언돼 있어 두 속성이 타입 체커에 안 보인다.
+    json_provider = cast(DefaultJSONProvider, app.json)
+    json_provider.ensure_ascii = False
+    json_provider.sort_keys = False
 
     # MAX_CONTENT_LENGTH 는 **설정하지 말 것**.
     # model_upload 의 put_chunk 는 request.stream 을 직접 읽고 한도를 스스로
