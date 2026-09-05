@@ -151,6 +151,13 @@ when the served model name disagrees with what was configured.
 **state, not an error** — it returns `{"available": false, "reason": ...}` so the page still renders
 on a laptop. `[N/A]` fields become `None`, never `0`, so a graph never shows a confident wrong value.
 
+The Flask process gets its environment from **`uwsgi.ini`'s `env =` lines only** — it is started
+without a shell export, and `deploy_vlms/config/common.env` is read by the launcher, not by Flask.
+`VLM_SERVE_UPSTREAM_API_KEY` must equal the launcher's `API_KEY`; the proxy strips the caller's
+`Authorization` and injects it, so callers never need to know it. Timeouts nest outward:
+nginx > `harakiri` (870) > `VLM_SERVE_READ_TIMEOUT_SEC` (300) — invert that and the app succeeds
+while the caller sees a 504.
+
 `flask_api/dashboard.py` serves `templates/dashboard.html` at `/` — registered by
 `register_dashboard(app)`, separate from `register_flask_api(app)` because the latter's contract is
 "everything under `/api`". The page polls **`/api/health` only**: that one payload already carries
@@ -247,6 +254,7 @@ The client-side registry (`poc/workflow_3/vlm/flask_vlm.py`) stays there and is 
 *not* duplicated here — it is kept separate from the server registry in
 `flask_api/vlm_serve/config.py`.
 
-**Deployment lever:** `uwsgi.ini` on the GPU server, and only that — there are no systemd rights,
-and the file is version-controlled in neither repo. Any restart or repoint advice has to fit
-inside editing that one file.
+**Deployment lever:** `uwsgi.ini` on the GPU server, and only that — there are no systemd rights.
+`deploy_vlms/uwsgi/uwsgi.ini` is the template (three `[SET_ME]` values); `deploy_vlms/nginx/` holds
+the two location blocks it pairs with. Any restart or repoint advice has to fit inside editing
+that one file.
