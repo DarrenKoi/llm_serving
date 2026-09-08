@@ -63,7 +63,7 @@ scaling factor 를 함께 들고 다닌다. H200 은 Hopper 라 FP8 이 네이�
 서로 다른 메모리 덩어리에 붙은 별개의 dial 이다.
 
 ```
-common.env:               DTYPE=bfloat16          <- Weights
+serve_vlm.py 기본값:       DTYPE=bfloat16          <- Weights
 qwen3.8-27b.env:  ... --kv-cache-dtype fp8        <- KV cache
 ```
 
