@@ -5,14 +5,6 @@
 vLLM serving stack + Flask API proxy for an in-house GPU server (H200 × 2). Split out of
 `auto_recipe_creator` on 2026-09-04.
 
-**The repo is public.** All site-specific values are placeholders (`${MODEL_ROOT}`,
-`vlm-host.internal`); real paths and secrets live in the gitignored
-`deploy_vlms/config/site.env`. Never commit an
-internal hostname or absolute model path — the history was scrubbed once already to remove them.
-
-`README.md` and `docs/README.md` are **deliberately empty** (emptied 2026-09-04 to reduce search
-indexing). Do not repopulate them without being asked. Their content is recoverable from git history.
-
 ## Setup and commands
 
 ```bash
