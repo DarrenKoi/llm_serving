@@ -309,6 +309,8 @@ def test_streaming_chat_proxy_logs_stream_summary(monkeypatch, caplog):
     )
 
     assert response.status_code == 200
+    assert response.is_streamed
+    assert response.headers["X-Accel-Buffering"] == "no"
     assert b"delta" in response.data
     assert "request service=qwen3.8-27b method=POST" in caplog.text
     assert "response service=qwen3.8-27b" in caplog.text

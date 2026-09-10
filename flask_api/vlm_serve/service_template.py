@@ -1,7 +1,7 @@
 """VLM 서비스 blueprint template.
 
-프록시는 요청 body 를 손대지 않고 넘기고, upstream 응답을 끝까지 버퍼링한 뒤
-그대로 반환한다.
+프록시는 요청 body 를 손대지 않고 넘긴다. upstream 이 SSE(`text/event-stream`)를 주면
+청크 단위로 그대로 흘리고(코딩 하네스의 stream=true), 그 외는 끝까지 버퍼링한 뒤 반환한다.
 
 (역사: UI-TARS 가 non-stream 요청에 빈 content 를 주던 시절 force_stream 으로 body 의
 stream 을 강제로 켜는 우회가 있었다. 그 모델과 함께 2026-09-05 에 제거 - 같은 증상이
@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from hmac import compare_digest
 
 import requests
-from flask import Blueprint, Response, jsonify, request
+from flask import Blueprint, Response, jsonify, request, stream_with_context
 from requests.structures import CaseInsensitiveDict
 
 from .logger import get_vlm_logger
@@ -163,7 +163,7 @@ def _build_response_headers(upstream_headers: CaseInsensitiveDict) -> list[tuple
 
 
 def _proxy_request(config: VLMServiceConfig, upstream_path: str):
-    """현재 요청을 upstream vLLM 으로 프록시한다 (비스트리밍)."""
+    """현재 요청을 upstream vLLM 으로 프록시한다. SSE 응답만 스트리밍한다."""
     upstream_url = f"{config.upstream_base_url.rstrip('/')}/{upstream_path.lstrip('/')}"
     start_time = time.monotonic()
     request_body = request.get_data(cache=True)
@@ -183,7 +183,7 @@ def _proxy_request(config: VLMServiceConfig, upstream_path: str):
             data=request_body,
             cookies=request.cookies,
             timeout=_upstream_timeout(),
-            stream=False,
+            stream=True,
         )
     except requests.RequestException as exc:
         logger.exception(
@@ -203,7 +203,7 @@ def _proxy_request(config: VLMServiceConfig, upstream_path: str):
         ), 502
 
     response_headers = _build_response_headers(upstream_response.headers)
-    body = upstream_response.content
+    is_sse = upstream_response.headers.get("Content-Type", "").startswith("text/event-stream")
     level = logging.INFO
     if upstream_response.status_code >= 500:
         level = logging.ERROR
@@ -217,6 +217,23 @@ def _proxy_request(config: VLMServiceConfig, upstream_path: str):
         upstream_response.status_code,
         (time.monotonic() - start_time) * 1000,
     )
+    if is_sse:
+        # 청크가 올 때마다 바로 내보낸다. 읽기 timeout 은 청크 사이 간격에만 걸리므로 xhigh 로
+        # 몇 분 생각하는 요청도 reasoning_content 델타가 흐르는 한 끊기지 않는다.
+        def _relay():
+            try:
+                yield from upstream_response.iter_content(chunk_size=None)
+            finally:
+                upstream_response.close()
+
+        response_headers.append(("X-Accel-Buffering", "no"))
+        return Response(
+            stream_with_context(_relay()),
+            status=upstream_response.status_code,
+            headers=response_headers,
+        )
+
+    body = upstream_response.content
     upstream_response.close()
     return Response(
         body,

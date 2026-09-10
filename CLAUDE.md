@@ -69,9 +69,10 @@ why the GPU server, which receives only `deploy_vlms/` and `flask_api/` copied b
 and no shell export, still gets `MODEL_ROOT` and the tokens. `SITE_ENV` overrides the path; the
 root `conftest.py` points it at `os.devnull` so tests never read a developer's real file.
 
-The proxy buffers the upstream response fully and returns it verbatim
-(`service_template.py`). `vlm_serve/__init__.py` loops over the registry and builds one proxy
-blueprint per entry with `create_vlm_service_blueprint`; there are no per-model files.
+The proxy relays SSE (`text/event-stream`) upstream responses chunk by chunk and buffers everything
+else, returning it verbatim (`service_template.py`). Coding harnesses (opencode, pi) can therefore
+stream through `/api/vlm_serve/<slug>/v1` when port 8006 is not reachable from the client.
+`vlm_serve/__init__.py` loops over the registry and builds one proxy blueprint per entry with `create_vlm_service_blueprint`; there are no per-model files.
 
 **A model's slug is declared in two places and they must agree:**
 

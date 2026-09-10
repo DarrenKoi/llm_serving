@@ -110,9 +110,17 @@ reply = chat([user_message("두 화면의 차이를 설명해라.", "before.png"
 
 ## 코딩 하네스 붙이기 (opencode · pi)
 
-`stream: true` 는 서버 설정이 아니라 요청 필드다 - vLLM 은 이미 SSE 를 준다. 켤 것이 없고,
-막는 것은 Flask 프록시 쪽이다(응답을 끝까지 버퍼링한다). 그래서 하네스는 **8006 에 직접** 붙인다.
-프록시(`/api/vlm_serve/...`)는 그동안 그대로 산다 - vLLM 입장에서 HTTP 클라이언트가 하나 늘 뿐이다.
+`stream: true` 는 서버 설정이 아니라 요청 필드다 - vLLM 은 이미 SSE 를 준다. 붙는 주소는 둘 중 하나:
+
+| 주소 | 언제 | 키 |
+|---|---|---|
+| `http://<사내IP>:8006/v1` | 8006 포트가 클라이언트에서 열릴 때 | `VLM_SERVE_UPSTREAM_API_KEY` |
+| `http://<webapp 호스트>/api/vlm_serve/qwen3.8-27b/v1` | 웹앱 호스트(ingress)만 닿을 때 | `VLM_SERVE_TOKEN` (비어 있으면 아무 값) |
+
+프록시는 SSE 응답을 청크 단위로 흘리므로(2026-09-10) 둘 다 스트리밍이 된다. 프록시 경로는
+호출자의 Authorization 을 떼고 업스트림 키를 대신 넣으므로 하네스가 vLLM 키를 알 필요가 없다.
+단 프록시 경로는 nginx 600s > harakiri 870 > 앱 read timeout 300s 가 걸린다 - 읽기 timeout 은
+청크 사이 간격이라 사고가 흐르는 동안은 안 끊기지만, 한 요청이 870s 를 넘기면 uWSGI 가 자른다.
 
 **효 강도는 반드시 `chat_template_kwargs` 로 보낸다.** top-level `reasoning_effort` 는
 0.19.1 에서 `xhigh` → 400, `high` → template `raise_exception` → 500 이다(위 §2 의 함정).
@@ -166,10 +174,13 @@ reply = chat([user_message("두 화면의 차이를 설명해라.", "before.png"
 
 ### opencode
 
-`body` 가 요청 본문에 JSON 을 병합한다(provider → model → variant 순으로 덮어쓴다).
-`variants` 로 강도별 항목을 만들면 사용자가 모델 고르듯 고른다.
+모델의 `options` 가 `@ai-sdk/openai-compatible` 의 providerOptions 로 들어가 **요청 본문에 그대로
+병합**된다(`chat_template_kwargs` 같은 임의 키도 통과). `variants` 는 id 를 키로 한 객체이고,
+값이 그 변형의 `options` 로 덮어써진다 - 사용자가 TUI 에서 모델 변형을 고르듯 강도를 고른다.
+`interleaved.field` 를 `reasoning_content` 로 두면 `--reasoning-parser qwen3` 이 분리한 사고가
+TUI 의 thinking 블록으로 보인다.
 
-**`settings.reasoningEffort` 는 쓰지 말 것** - 그게 top-level 필드로 나가는 경로다.
+**`reasoningEffort` 옵션은 쓰지 말 것** - 그게 top-level 필드로 나가는 경로다.
 
 ```jsonc
 {
@@ -185,15 +196,18 @@ reply = chat([user_message("두 화면의 차이를 설명해라.", "before.png"
       "models": {
         "qwen3.8-27b": {
           "name": "Qwen3.8-27B",
+          "reasoning": true,
+          "tool_call": true,
+          "interleaved": { "field": "reasoning_content" },
           "limit": { "context": 262144, "output": 16384 },
-          "body": {
+          "options": {
             "chat_template_kwargs": { "enable_thinking": true, "reasoning_effort": "medium" }
           },
-          "variants": [
-            { "id": "low",   "body": { "chat_template_kwargs": { "reasoning_effort": "low" } } },
-            { "id": "xhigh", "body": { "chat_template_kwargs": { "reasoning_effort": "xhigh" } } },
-            { "id": "nothink", "body": { "chat_template_kwargs": { "enable_thinking": false } } }
-          ]
+          "variants": {
+            "low":     { "chat_template_kwargs": { "enable_thinking": true, "reasoning_effort": "low" } },
+            "xhigh":   { "chat_template_kwargs": { "enable_thinking": true, "reasoning_effort": "xhigh" } },
+            "nothink": { "chat_template_kwargs": { "enable_thinking": false } }
+          }
         }
       }
     }
@@ -201,9 +215,10 @@ reply = chat([user_message("두 화면의 차이를 설명해라.", "before.png"
 }
 ```
 
-버전 주의: `body` 와 `variants` 는 opencode v2 키이고, v2 는 최상위가 `provider` 가 아니라
-`providers` 다. 붙여넣기 전에 `opencode --version` 과 스키마를 확인할 것 - 키 이름이 틀리면
-오류 없이 조용히 무시되고 그냥 기본값으로 돈다.
+버전 주의: 위 키 이름은 opencode **1.18.x** 의 `https://opencode.ai/config.json` 스키마로 확인한
+것이다(최상위 `provider`, 모델 `options`/`variants`, `variants` 는 배열이 아니라 객체). 키 이름이
+틀리면 오류 없이 조용히 무시되고 그냥 기본값(medium)으로 돈다 - 붙여넣기 전에
+`opencode --version` 을 보고, 의심되면 `curl -s https://opencode.ai/config.json` 로 대조한다.
 
 ### 확인
 
