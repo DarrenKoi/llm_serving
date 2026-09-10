@@ -16,6 +16,8 @@
   - 인스턴스 이름으로 config/models/<instance>.env의 PORT를 찾는다.
   - runtime/pids/<instance>.pid가 있으면 해당 PID를 우선 종료한다.
   - PID 파일이 없거나 stale이면 해당 포트를 사용 중인 프로세스 또는 vllm 프로세스를 찾는다.
+  - 환경변수(PORT + VLLM_NO_USAGE_STATS)로 자식 프로세스까지 찾는다. 0.19.1 의 GPU 메모리는
+    api_server 가 아니라 VLLM::EngineCore 자식이 쥐고 있어, cmdline/포트만 보면 놓친다.
   - SIGTERM 후 일정 시간 내 종료되지 않으면 SIGKILL을 보낸다.
 """
 
@@ -281,6 +283,29 @@ def find_listening_pids_by_port(port: str) -> list[int]:
     return []
 
 
+def _environ_matches(environ_raw: bytes, port: str) -> bool:
+    """serve_vlm.py 가 심은 환경변수를 물려받은 프로세스인지 판정한다."""
+    entries = set(environ_raw.decode("utf-8", errors="replace").split("\0"))
+    return "VLLM_NO_USAGE_STATS=1" in entries and f"PORT={port}" in entries
+
+
+def find_pids_by_environ(port: str, proc_path: Path = Path("/proc")) -> list[int]:
+    """/proc/<pid>/environ 기준으로 인스턴스의 모든 프로세스(EngineCore 자식 포함)를 찾는다."""
+    if not port or not proc_path.is_dir():
+        return []
+    pids = []
+    for pid_dir in proc_path.iterdir():
+        if not pid_dir.name.isdigit():
+            continue
+        try:
+            environ_raw = (pid_dir / "environ").read_bytes()
+        except OSError:
+            continue
+        if _environ_matches(environ_raw, port):
+            pids.append(int(pid_dir.name))
+    return sorted(pids)
+
+
 def kill_process(pid: int, sigterm_wait: float = SIGTERM_WAIT_SEC) -> bool:
     """프로세스를 SIGTERM으로 종료 시도 후, 실패 시 SIGKILL."""
     try:
@@ -364,7 +389,7 @@ def collect_targets(processes: list[dict], instance: str, port: str) -> list[dic
         if proc["port"] == port or (served_name and proc["served_model_name"] == served_name):
             targets_by_pid.setdefault(proc["pid"], proc)
 
-    for pid in find_listening_pids_by_port(port):
+    for pid in find_listening_pids_by_port(port) + find_pids_by_environ(port):
         targets_by_pid.setdefault(
             pid,
             build_process_record(
