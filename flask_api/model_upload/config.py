@@ -1,6 +1,6 @@
 """모델 업로드 엔드포인트 설정.
 
-deploy_vlms/config/common.env 의 ALLOWED_MODEL_ROOT 와 같은 곳을 기본 목적지로 쓴다.
+site.env 의 MODEL_ROOT(런처가 모델을 찾는 바로 그 루트)를 목적지로 쓴다.
 staging 은 반드시 목적지 루트 **안쪽**에 둔다 - 같은 파일시스템이어야
 os.replace 가 원자적이고, 다 받은 뒤 파티션을 넘어 복사하는 일이 없다.
 """
@@ -14,7 +14,7 @@ from flask import Blueprint
 from .routes import create_model_upload_blueprint
 from .store import UploadStore
 
-# 마지막 수단: MODEL_UPLOAD_ROOT 도 ALLOWED_MODEL_ROOT 도 없을 때의 목적지.
+# 마지막 수단: MODEL_ROOT 가 없을 때의 목적지.
 # 공개 저장소다 - 실제 경로를 채운 채 커밋하지 말 것(.git/hooks/pre-commit 이 막는다).
 DEFAULT_DEST_ROOT = "/path/to/models"
 STAGING_DIRNAME = ".upload_staging"
@@ -35,12 +35,9 @@ class ModelUploadConfig:
 
 def load_upload_config() -> ModelUploadConfig:
     """환경변수에서 업로드 설정을 읽는다."""
-    # deploy_vlms/config/common.env 의 ALLOWED_MODEL_ROOT 가 서빙 쪽 루트다.
-    # 그것이 바뀌면 업로드 목적지도 따라가야 한다 - 하드코딩 기본값은 마지막 수단.
+    # 업로드 전용 루트를 따로 두지 않는다 - 두 벌이면 "올렸는데 런처가 못 찾는" 어긋남이 생긴다.
     dest_root = Path(
-        os.environ.get("MODEL_UPLOAD_ROOT", "").strip()
-        or os.environ.get("ALLOWED_MODEL_ROOT", "").strip()
-        or DEFAULT_DEST_ROOT
+        os.environ.get("MODEL_ROOT", "").strip() or DEFAULT_DEST_ROOT
     ).expanduser()
 
     # staging 은 오버라이드할 수 없다 - 목적지 루트 안에 있어야 os.replace 가 원자적이다.
@@ -55,7 +52,8 @@ def load_upload_config() -> ModelUploadConfig:
     return ModelUploadConfig(
         dest_root=dest_root,
         staging_root=staging_root,
-        token=os.environ.get("MODEL_UPLOAD_TOKEN", "").strip(),
+        # 서빙과 같은 팀 공용 키. 비우면 인증 없이 열린다.
+        token=os.environ.get("VLLM_API_KEY", "").strip(),
         max_chunk_bytes=max_chunk_mb * 1024 * 1024,
         enabled=enabled,
     )

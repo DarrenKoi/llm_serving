@@ -19,7 +19,7 @@
 BASE_URL = "http://vlm-host.internal"
 SRC = ""            # 올릴 로컬 폴더 또는 파일. 예) r"C:/models/Qwen3.8-27B"
 DEST = ""           # 서버 루트 아래 목적지. 비우면 소스 폴더명 = <model_name>
-TOKEN = ""          # 서버가 토큰을 안 쓰면 빈 문자열
+TOKEN = ""          # 서버 site.env 의 VLLM_API_KEY. 셸 export 가 우선. 서버가 키를 안 쓰면 빈 문자열
 CHUNK_MB = None     # None = 코드 기본값(32). 프록시 상한이 작으면 낮춘다
 MAX_RETRIES = None  # None = 코드 기본값(5)
 
@@ -377,7 +377,7 @@ def _load_settings() -> dict:
         "source": source_path,
         "base_url": base_url,
         "dest_prefix": dest_prefix,
-        "token": _env("MODEL_UPLOAD_TOKEN", TOKEN),
+        "token": _env("VLLM_API_KEY", TOKEN),
         "chunk_size": int(_env("MODEL_UPLOAD_CHUNK_MB", CHUNK_MB, DEFAULT_CHUNK_MB))
         * 1024
         * 1024,
@@ -504,7 +504,7 @@ def main() -> int:
                     "MODEL_UPLOAD_CHUNK_MB 를 낮춰 보세요."
                 )
             if error.status_code == 401:
-                print("        MODEL_UPLOAD_TOKEN 을 확인하세요.")
+                print("        VLLM_API_KEY 을 확인하세요.")
             return 3
         except (TransientError, RemoteChecksumMismatch) as error:
             print(

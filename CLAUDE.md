@@ -10,7 +10,7 @@ vLLM serving stack + Flask API proxy for an in-house GPU server (H200 × 2). Spl
 ```bash
 pip install -e ".[dev]"
 
-# Site values (MODEL_ROOT, tokens) live inside deploy_vlms/ so they travel with a folder copy.
+# Site values (MODEL_ROOT, VLLM_API_KEY) live inside deploy_vlms/ so they travel with a folder copy.
 # serve_vlm.py and flask_api read the file themselves; a shell export wins over it:
 cp deploy_vlms/config/site.env.example deploy_vlms/config/site.env   # then fill it in
 ```
@@ -48,7 +48,7 @@ finds them via `pythonpath = [".", "scripts"]`. There is no linter or formatter 
 ## Architecture
 
 Two halves that **never import each other**. They meet only through
-`deploy_vlms/config/`: `site.env` (site paths and tokens, read by both) and `models/*.env`, which the launcher consumes as config and the Flask health
+`deploy_vlms/config/`: `site.env` (`MODEL_ROOT` and the one `VLLM_API_KEY`, read by both) and `models/*.env`, which the launcher consumes as config and the Flask health
 probe reads at runtime to discover what should be running.
 
 ### deploy_vlms/ — process launcher
@@ -66,7 +66,7 @@ working under `deploy_vlms/`.
 Importing `flask_api` runs `load_site_env()`, which copies `deploy_vlms/config/site.env` into
 `os.environ` (fill-only, existing keys win) **before** `model_upload` snapshots its config. That is
 why the GPU server, which receives only `deploy_vlms/` and `flask_api/` copied by hand with no git
-and no shell export, still gets `MODEL_ROOT` and the tokens. `SITE_ENV` overrides the path; the
+and no shell export, still gets `MODEL_ROOT` and `VLLM_API_KEY`. `SITE_ENV` overrides the path; the
 root `conftest.py` points it at `os.devnull` so tests never read a developer's real file.
 
 The proxy relays SSE (`text/event-stream`) upstream responses chunk by chunk and buffers everything
@@ -88,12 +88,12 @@ Adding a model means one line in `config.py` plus the `.env`.
 There is no `enabled` flag. Deleted models are removed outright — a disabled entry would falsely
 imply flipping a flag could revive it, when the checkpoint is actually gone from the server.
 
-`VLM_SERVE_TOKEN` (in `site.env`) gates `/api/vlm_serve/<slug>/v1/*` with one shared team token,
-checked in a `before_request` on each service blueprint. Empty means auth is **off**, so setting it
-is opt-in and an existing deployment never breaks silently. `home` and `health` stay open for
-monitoring. Callers may send `X-VLM-Token` or `Authorization: Bearer` (the OpenAI client uses the
-latter) — and when the token is configured the caller's `Authorization` is **stripped before
-forwarding**, so it cannot collide with the upstream `API_KEY` the proxy injects.
+`VLLM_API_KEY` (in `site.env`) is the **one key** for everything: vLLM's `--api-key`, the check on
+`/api/vlm_serve/<slug>/v1/*` (a `before_request` on each service blueprint), and `/api/model_upload`.
+Empty means auth is **off** everywhere. `home` and `health` stay open for monitoring. Callers may
+send `X-VLM-Token` or `Authorization: Bearer` (the OpenAI client uses the latter); the proxy strips
+the caller's `Authorization` and injects `Bearer $VLLM_API_KEY` upstream, so an `X-VLM-Token`
+caller still reaches vLLM authenticated.
 
 `/api/health` is a **reconciliation, not a stored flag**: it merges declared proxies with
 discovered `.env` files, live-probes each upstream `/v1/models`, and reports `serving_mismatch`
@@ -106,10 +106,9 @@ A missing or failing `nvidia-smi` is a
 **state, not an error** — it returns `{"available": false, "reason": ...}` so the page still renders
 on a laptop. `[N/A]` fields become `None`, never `0`, so a graph never shows a confident wrong value.
 
-The Flask process gets its environment from **`uwsgi.ini`'s `env =` lines only** — it is started
-without a shell export, and `deploy_vlms/config/common.env` is read by the launcher, not by Flask.
-`VLM_SERVE_UPSTREAM_API_KEY` must equal the launcher's `API_KEY`; the proxy strips the caller's
-`Authorization` and injects it, so callers never need to know it. Timeouts nest outward:
+`uwsgi.ini` has **no `env =` lines**: Flask gets `site.env` through `load_site_env()`, which is
+fill-only, so an `env =` line would silently override `site.env`. `deploy_vlms/config/common.env` is
+read by the launcher, not by Flask. Timeouts nest outward:
 nginx > `harakiri` (870) > `VLM_SERVE_READ_TIMEOUT_SEC` (300) — invert that and the app succeeds
 while the caller sees a 504.
 
@@ -165,9 +164,9 @@ timeout blocks in `deploy_vlms/nginx/`.
   The server default is **medium**, set by `--default-chat-template-kwargs` in `qwen3.8-27b.env`
   (the chat template's own default is xhigh, which makes coding harnesses that send nothing think
   for minutes). A request's own `chat_template_kwargs` still wins over it.
-- **`API_KEY` is on and `HOST` is `0.0.0.0`.** vLLM therefore rejects unauthenticated `/v1/*`
+- **`VLLM_API_KEY` is set and `HOST` is `0.0.0.0`.** vLLM therefore rejects unauthenticated `/v1/*`
   (`/health` stays open). Anything that probes an upstream must send
-  `Authorization: Bearer <VLM_SERVE_UPSTREAM_API_KEY>` — `check_vlm.upstream_api_key()` and
+  `Authorization: Bearer <VLLM_API_KEY>` — `check_vlm.upstream_api_key()` and
   `qwen_client.API_KEY` are the two places that resolve it. A missing header does not surface as
   401: `start_all.py` reads it as "not up yet" and stops the model.
 
@@ -182,10 +181,10 @@ one-way: changes are made here, then ported there. Never the reverse, or there i
 which copy wins.
 
 **Porting is per-file, never `cp -r`.** The two copies have diverged in *both* directions.
-The divergence table and the two config traps (`site.env`, `API_KEY` expansion) that bite on copy
+The divergence table and the config trap (`site.env` / `load_site_env()`) that bites on copy
 are in the `port-to-auto-recipe-creator` skill — load it before porting anything.
 
 **Deployment lever:** `uwsgi.ini` on the GPU server, and only that — there are no systemd rights.
-`deploy_vlms/uwsgi/uwsgi.ini` is the template (three `[SET_ME]` values); `deploy_vlms/nginx/` holds
+`deploy_vlms/uwsgi/uwsgi.ini` is the template (three `[SET_ME]` values: `chdir`, `virtualenv`, `logto`); `deploy_vlms/nginx/` holds
 the two location blocks it pairs with. Any restart or repoint advice has to fit inside editing
 that one file.

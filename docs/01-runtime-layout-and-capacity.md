@@ -7,7 +7,7 @@ This document merges the old layout, multi-size, offline policy, host RAM, and v
 - GPU server: `H200 140GB x 2`
 - OS: Linux
 - serving runtime: dedicated Python environment with `vLLM`
-- model weights: already staged under the cloud server's local `data/models/`
+- model weights: already staged under `MODEL_ROOT` (set in `deploy_vlms/config/site.env`)
 - office environment: offline or tightly restricted outbound access
 
 `vLLM` is the serving engine, not the training framework. Fine-tuning belongs to the Hugging Face / TRL / PEFT / Unsloth side; serving belongs here.
@@ -15,7 +15,7 @@ This document merges the old layout, multi-size, offline policy, host RAM, and v
 ## 2. Recommended Layout
 
 ```text
-/project/.../data/models/
+${MODEL_ROOT}/
   UI-Venus-1.5-8B/
   MAI-UI-8B/
   UI-TARS-1.5-7B/
@@ -36,7 +36,7 @@ deploy_vlms/
 
 Guiding rule:
 
-- model files stay in `data/models/`
+- model files stay under `MODEL_ROOT`
 - shared runtime knobs stay in `common.env`
 - per-service port/GPU/alias settings stay in `models/*.env`
 
@@ -64,7 +64,6 @@ GPU_MEMORY_UTILIZATION=0.80
 MAX_MODEL_LEN=8192
 MAX_NUM_SEQS=8
 TENSOR_PARALLEL_SIZE=1
-API_KEY=
 ```
 
 Important per-model keys:

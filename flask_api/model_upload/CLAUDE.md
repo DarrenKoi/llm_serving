@@ -5,6 +5,6 @@ Three layers, deliberately: `store.py` (filesystem + resume state, **knows nothi
 testable without a running server — keep new logic in `store.py`.
 
 Staging must stay **inside** the destination root so `os.replace` is atomic on one filesystem.
-`MODEL_UPLOAD_ROOT` must be set for the Flask process: it does not read `common.env`, so
-`ALLOWED_MODEL_ROOT` never reaches it. Runbook in `deploy_vlms/UPLOAD.md`, nginx body-size and
+The destination root is `MODEL_ROOT`, the same value vLLM reads — Flask gets it from `site.env` via
+`load_site_env()`, and there is no upload-specific override, so the two cannot drift. Runbook in `deploy_vlms/UPLOAD.md`, nginx body-size and
 timeout blocks in `deploy_vlms/nginx/`.

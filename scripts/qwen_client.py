@@ -21,7 +21,7 @@
 프록시(/api/vlm_serve/qwen3.8-27b) 대신 vLLM 에 직접 붙는 이유는 check_kv_longctx.py 와
 같다 - 프록시는 응답을 끝까지 버퍼링하고 read timeout 300s 라, xhigh 로 몇 분씩
 생각하는 요청이 HTTP 경로 때문에 끊긴다. 프록시로 가려면 BASE_URL 을
-http://<flask>/api/vlm_serve/qwen3.8-27b 로 바꾸고 TOKEN 을 채운다.
+http://<flask>/api/vlm_serve/qwen3.8-27b 로 바꾼다. 키는 같은 VLLM_API_KEY 그대로다.
 """
 
 import base64
@@ -36,10 +36,9 @@ from typing import Any, Iterator, NamedTuple
 # ── 인자는 여기 있다 (이 저장소는 CLI 플래그를 쓰지 않는다) ────────────────
 BASE_URL = "http://127.0.0.1:8006"
 MODEL = "qwen3.8-27b"
-TOKEN = ""  # 프록시 경유 + VLM_SERVE_TOKEN 설정 시에만 채운다
-# vLLM 이 --api-key 로 떠 있으면 8006 직결도 인증을 요구한다 (/v1/* 전부, /health 만 열림).
-# site.env 의 VLM_SERVE_UPSTREAM_API_KEY 와 같은 값이다. 셸에 export 하거나 여기 직접 채운다.
-API_KEY = os.environ.get("VLM_SERVE_UPSTREAM_API_KEY", "").strip()
+# site.env 의 VLLM_API_KEY 와 같은 값. 8006 직결과 프록시 경유 둘 다 이 키 하나로 붙는다
+# (/v1/* 전부, /health 만 열림). 셸에 export 하거나 여기 직접 채운다.
+API_KEY = os.environ.get("VLLM_API_KEY", "").strip()
 REQUEST_TIMEOUT_SEC = 1800.0  # xhigh 는 한 요청이 몇 분씩 간다
 
 # 모델 카드(Qwen/Qwen3.8-27B) 권장 샘플링. thinking 이면 전자, 끄면 후자.
@@ -107,8 +106,6 @@ def build_request(messages, *, thinking=True, effort="xhigh", budget=None,
 
 def _headers():
     headers = {"Content-Type": "application/json"}
-    if TOKEN:
-        headers["X-VLM-Token"] = TOKEN
     if API_KEY:
         headers["Authorization"] = f"Bearer {API_KEY}"
     return headers

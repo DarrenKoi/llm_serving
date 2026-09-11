@@ -9,3 +9,7 @@ site.env 로딩 자체를 검증하는 테스트는 SITE_ENV 를 지우거나 �
 import os
 
 os.environ.setdefault("SITE_ENV", os.devnull)
+
+# 개발 PC 는 opencode/pi 용으로 VLLM_API_KEY 를 export 해 두기 쉽다. 그대로 두면 키를 안 거는
+# 테스트까지 프록시·업로드 인증이 켜진 채 돌아 401 이 난다 - 키가 필요한 테스트는 스스로 건다.
+os.environ.pop("VLLM_API_KEY", None)

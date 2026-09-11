@@ -95,11 +95,12 @@ reply = chat([user_message("두 화면의 차이를 설명해라.", "before.png"
 - **`usage` 에 사고 토큰이 따로 없다.** 스크립트는 `/tokenize` 로 `reasoning` 문자열을
   다시 세서 사고/답을 나눈다.
 - **프록시 대신 vLLM 에 직접 붙는다**(`127.0.0.1:8006`, 다른 장비에선 `<사내IP>:8006`).
-  `common.env` 의 `HOST=0.0.0.0` + `API_KEY` 라 사내에서 바로 닿고 키가 필요하다
-  (`site.env` 의 `VLM_SERVE_UPSTREAM_API_KEY`). `/api/vlm_serve/...` 는 응답을
-  끝까지 버퍼링하고 read timeout 이 300s 라, xhigh 로 몇 분씩 생각하는 요청이 HTTP 경로
-  때문에 끊긴다. 프록시로 가려면 `BASE_URL` 을 `http://<flask>/api/vlm_serve/qwen3.8-27b`
-  로, 토큰이 있으면 `TOKEN` 을 채운다.
+  `common.env` 의 `HOST=0.0.0.0` 이라 사내에서 바로 닿고, `site.env` 의 `VLLM_API_KEY` 가
+  채워져 있으면 그 키가 필요하다. `/api/vlm_serve/...` 는 스트리밍이 아닌 응답을
+  끝까지 버퍼링하고 read timeout 이 300s 라, `stream=False` 로 xhigh 를 몇 분씩 생각시키면
+  HTTP 경로 때문에 끊긴다(스트리밍은 청크 단위로 흘러서 괜찮다 - 아래 하네스 절).
+  프록시로 가려면 `BASE_URL` 을 `http://<flask>/api/vlm_serve/qwen3.8-27b`
+  로 바꾼다. 키(`API_KEY`)는 같은 `VLLM_API_KEY` 그대로다.
 - **tool calling** 은 이미 켜져 있다 - `EXTRA_VLLM_ARGS` 의 `--enable-auto-tool-choice
   --tool-call-parser qwen3_xml`. template 의 tool 포맷이 `<tool_call><function=…><parameter=…>`
   라 XML 파서여야 한다(`hermes` 는 JSON 전용이라 못 쓴다). 코딩 하네스는 전부 이걸 쓴다.
@@ -114,11 +115,12 @@ reply = chat([user_message("두 화면의 차이를 설명해라.", "before.png"
 
 | 주소 | 언제 | 키 |
 |---|---|---|
-| `http://<사내IP>:8006/v1` | 8006 포트가 클라이언트에서 열릴 때 | `VLM_SERVE_UPSTREAM_API_KEY` |
-| `http://<webapp 호스트>/api/vlm_serve/qwen3.8-27b/v1` | 웹앱 호스트(ingress)만 닿을 때 | `VLM_SERVE_TOKEN` (비어 있으면 아무 값) |
+| `http://<사내IP>:8006/v1` | 8006 포트가 클라이언트에서 열릴 때 | `VLLM_API_KEY` |
+| `http://<webapp 호스트>/api/vlm_serve/qwen3.8-27b/v1` | 웹앱 호스트(ingress)만 닿을 때 | `VLLM_API_KEY` |
 
-프록시는 SSE 응답을 청크 단위로 흘리므로(2026-09-10) 둘 다 스트리밍이 된다. 프록시 경로는
-호출자의 Authorization 을 떼고 업스트림 키를 대신 넣으므로 하네스가 vLLM 키를 알 필요가 없다.
+프록시는 SSE 응답을 청크 단위로 흘리므로(2026-09-10) 둘 다 스트리밍이 된다. 두 주소 모두 같은
+`VLLM_API_KEY` 를 보낸다(서버에서 비어 있으면 인증이 꺼져 아무 값이나 된다). 프록시는 그 키를
+검사한 뒤 호출자의 Authorization 을 떼고 같은 키를 업스트림에 다시 넣는다.
 단 프록시 경로는 nginx 600s > harakiri 870 > 앱 read timeout 300s 가 걸린다 - 읽기 timeout 은
 청크 사이 간격이라 사고가 흐르는 동안은 안 끊기지만, 한 요청이 870s 를 넘기면 uWSGI 가 자른다.
 
@@ -141,7 +143,7 @@ reply = chat([user_message("두 화면의 차이를 설명해라.", "before.png"
     "vllm": {
       "baseUrl": "http://<사내IP>:8006/v1",
       "api": "openai-completions",
-      "apiKey": "$VLLM_API_KEY",      // site.env 의 VLM_SERVE_UPSTREAM_API_KEY 와 같은 값
+      "apiKey": "$VLLM_API_KEY",   // site.env 와 같은 이름·값 (qwen_client.py 도 이걸 읽는다)
       "compat": {
         "supportsReasoningEffort": false,   // top-level reasoning_effort 금지 (400/500 함정)
         "thinkingFormat": "chat-template",
@@ -223,10 +225,10 @@ TUI 의 thinking 블록으로 보인다.
 ### 확인
 
 `--api-key` 를 켠 뒤에는 이 디렉토리의 스크립트도 인증이 필요하다. `qwen_client.py` 의 `API_KEY`
-상수가 `VLM_SERVE_UPSTREAM_API_KEY` 를 읽으므로 셸에 export 하거나 상수를 직접 채운다.
+상수가 `VLLM_API_KEY` 를 읽으므로 셸에 export 하거나 상수를 직접 채운다.
 
 ```bash
-export VLM_SERVE_UPSTREAM_API_KEY=...   # site.env 와 같은 값
+export VLLM_API_KEY=...   # site.env 와 같은 값
 
 # 서버에서: 이 vLLM 빌드에 인자가 있는지 (없으면 기동이 바로 죽는다 - 로그에 unrecognized arguments)
 vllm serve --help | grep default-chat-template-kwargs

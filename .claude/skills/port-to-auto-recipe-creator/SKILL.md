@@ -1,6 +1,6 @@
 ---
 name: port-to-auto-recipe-creator
-description: Port a deploy_vlms/ or flask_api/ change from this repo to auto_recipe_creator. Use before copying any file between the two repos - carries the divergence table and the site.env / API_KEY expansion traps.
+description: Port a deploy_vlms/ or flask_api/ change from this repo to auto_recipe_creator. Use before copying any file between the two repos - carries the divergence table and the site.env / VLLM_API_KEY / ${MODEL_ROOT} traps.
 ---
 
 # Porting to auto_recipe_creator
@@ -11,18 +11,27 @@ The two copies have diverged in *both* directions:
 | Only here | Only in auto_recipe_creator |
 |---|---|
 | `flask_api/dashboard.py`, `gpu_status.py`, `templates/` | `gpu_dashboard/` (outside `flask_api`) |
-| `flask_api/__init__.py`'s `load_site_env()` | `scripts/models/` |
-| `config/site.env`, `site.env.example` | `scripts/prepare_variant_envs.py`, `start_*.py` shims, per-model `vlm_serve/<model>.py` (all deleted here 2026-09-05; delete there too when porting) |
-| `scripts/diagnose_paths.py`, most `test_*.py` | |
+| `deploy_vlms/uwsgi/uwsgi.ini` template | `scripts/models/` |
+| `scripts/diagnose_paths.py`, most `test_*.py` | `scripts/prepare_variant_envs.py`, `start_*.py` shims, per-model `vlm_serve/<model>.py` (all deleted here 2026-09-05; delete there too when porting) |
+| Launcher that expands `${MODEL_ROOT}` (`serve_vlm.py`, `common.env`, `models/*.env`) | Old auto-tune launcher: `common.env` hardcodes `ALLOWED_MODEL_ROOT` and per-knob defaults, `HOST=127.0.0.1` |
 
-Two of those are load-bearing traps when porting config:
+Shared since 2026-09-11: one `VLLM_API_KEY` in `deploy_vlms/config/site.env`, read by
+`flask_api/__init__.py`'s `load_site_env()`, `serve_vlm.py`, `check_vlm.py`, the proxy
+(`service_template.py`), and `model_upload/config.py` (upload root = `MODEL_ROOT`).
 
-- **auto_recipe_creator has no `site.env` and its `flask_api/__init__.py` does not call
-  `load_site_env()`.** Its `common.env` hardcodes `ALLOWED_MODEL_ROOT` instead. So this repo's
-  `API_KEY=${VLM_SERVE_UPSTREAM_API_KEY}` copied there stays an **unexpanded literal** — vLLM comes
-  up demanding a key nobody can produce, and the Flask process never learns one either. Either port
-  `load_site_env()` + create a `site.env` there, or write literal values into that repo's own
-  `common.env`.
+Load-bearing traps when porting:
+
+- **auto_recipe_creator's launcher does not `expandvars`.** Its `load_env_file` assigns values
+  literally, so a `models/*.env` or `common.env` from here that says `${MODEL_ROOT}/...` stays a
+  literal there and trips the `MODEL_ID` `isabs` check. Port those `.env` files only together with
+  this repo's `serve_vlm.py`.
+- **`site.env` must stay gitignored there.** Its `.gitignore` only had `.env`, which does not match
+  `site.env`; an explicit `deploy_vlms/config/site.env` line was added. Keep it.
+- **workflow_3 must send the key before the server sets it.** `poc/workflow_3/vlm/flask_vlm.py`'s
+  `resolve_service_api_key` returns `VLLM_API_KEY` for proxy-mode services. Once the server's
+  `site.env` has a key, a client without it gets 401 on every `/api/vlm_serve` call.
+- **No `env =` lines in the server's `uwsgi.ini`** for `VLLM_API_KEY` / `MODEL_ROOT`:
+  `load_site_env()` is fill-only, so those lines silently beat `site.env`.
 - Copying this repo's `flask_api/` wholesale also drops that app's `gpu_dashboard` registration in
   its `web_main.py`; port `flask_api/` files one at a time.
 - Its `poc/workflow_2/docs/study/paddleOCR/README.md` still names `start_paddleocr_vl.py`; fix that

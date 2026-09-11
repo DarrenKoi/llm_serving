@@ -11,17 +11,17 @@ import flask_api
 def test_site_env_fills_gaps_but_never_overrides_shell(tmp_path, monkeypatch):
     """빈 자리만 채운다 - WSGI/systemd 가 준 환경이 우선. ${VAR} 는 최종 환경 기준, 따옴표는 벗긴다."""
     site_env = tmp_path / "site.env"
-    site_env.write_text('MODEL_ROOT=/file\nMODEL_UPLOAD_ROOT=${MODEL_ROOT}\nVLM_SERVE_TOKEN="t"\n')
+    site_env.write_text('MODEL_ROOT=/file\nALLOWED_MODEL_ROOT=${MODEL_ROOT}\nVLLM_API_KEY="t"\n')
     monkeypatch.setattr(os, "environ", dict(os.environ))
     os.environ["MODEL_ROOT"] = "/shell"
-    os.environ.pop("MODEL_UPLOAD_ROOT", None)
-    os.environ.pop("VLM_SERVE_TOKEN", None)
+    os.environ.pop("ALLOWED_MODEL_ROOT", None)
+    os.environ.pop("VLLM_API_KEY", None)
 
     flask_api.load_site_env(site_env)
 
     assert os.environ["MODEL_ROOT"] == "/shell"
-    assert os.environ["MODEL_UPLOAD_ROOT"] == "/shell"
-    assert os.environ["VLM_SERVE_TOKEN"] == "t"
+    assert os.environ["ALLOWED_MODEL_ROOT"] == "/shell"
+    assert os.environ["VLLM_API_KEY"] == "t"
 
 
 def test_site_env_default_path_sits_beside_model_envs(tmp_path, monkeypatch):

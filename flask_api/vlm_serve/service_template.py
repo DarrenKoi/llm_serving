@@ -93,9 +93,12 @@ def _upstream_timeout() -> tuple[float, float]:
     return connect_timeout, read_timeout
 
 
-def _shared_token() -> str:
-    """팀 공용 토큰. 비어 있으면 인증 없이 열린다 (model_upload 와 같은 규약)."""
-    return os.environ.get("VLM_SERVE_TOKEN", "").strip()
+def _api_key() -> str:
+    """팀 공용 키 하나(site.env 의 VLLM_API_KEY). 비어 있으면 인증 없이 열린다.
+
+    같은 값이 호출자 검증과 업스트림 vLLM 의 --api-key 양쪽에 쓰인다 (model_upload 도 같은 키).
+    """
+    return os.environ.get("VLLM_API_KEY", "").strip()
 
 
 def _presented_token() -> str:
@@ -123,16 +126,12 @@ def _build_upstream_headers() -> dict[str, str]:
         "transfer-encoding",
         "accept-encoding",
     }
-    default_api_key = os.environ.get("VLM_SERVE_UPSTREAM_API_KEY", "").strip()
+    api_key = _api_key()
 
-    # 호출자의 Authorization 은 **이 프록시에게** 온 것이다 (VLM_SERVE_TOKEN, 또는 OpenAI
-    # 클라이언트가 어쩔 수 없이 채워 보내는 아무 값). 업스트림 키는 프록시의 구현 세부이므로
-    # 둘 중 하나라도 쓰는 중이면 호출자 헤더를 그대로 넘기지 않는다.
-    #
-    # 이 조건에 default_api_key 가 없으면, 토큰을 안 쓰는 배포에서 호출자가 보낸 아무 키가
-    # vLLM 까지 흘러가 401 이 난다. 프록시를 쓰는 쪽(auto_recipe_creator/workflow_3)은
-    # 업스트림 키를 알 필요가 없어야 한다 - 그게 프록시를 두는 이유다.
-    if _shared_token() or default_api_key:
+    # 호출자의 Authorization 은 **이 프록시에게** 온 것이다 (Bearer 로 보낸 키, 또는 OpenAI
+    # 클라이언트가 비워 둘 수 없어 채워 보내는 아무 값). 키를 쓰는 배포에서는 떼어내고 키를
+    # 다시 싣는다 - X-VLM-Token 으로 인증한 호출자도 업스트림에는 인증된 채로 도착한다.
+    if api_key:
         blocked_headers.add("authorization")
 
     headers = {
@@ -141,8 +140,8 @@ def _build_upstream_headers() -> dict[str, str]:
         if key.lower() not in blocked_headers
     }
 
-    if default_api_key:
-        headers["Authorization"] = f"Bearer {default_api_key}"
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
 
     return headers
 
@@ -248,13 +247,13 @@ def create_vlm_service_blueprint(config: VLMServiceConfig) -> Blueprint:
     service_blueprint = Blueprint(config.env_prefix.lower(), __name__)
 
     @service_blueprint.before_request
-    def _require_shared_token():
-        """프록시 호출에 공용 토큰을 요구한다. home / health 는 열어 둔다.
+    def _require_api_key():
+        """프록시 호출에 팀 공용 키(VLLM_API_KEY)를 요구한다. home / health 는 열어 둔다.
 
-        VLM_SERVE_TOKEN 이 비어 있으면 아무것도 하지 않는다 - 토큰을 설정하는
-        순간에만 켜지므로 기존 배포가 조용히 막히지 않는다.
+        키가 비어 있으면 아무것도 하지 않는다 - 서버 site.env 에 키를 채우는 순간
+        vLLM · 프록시 · 업로드가 한꺼번에 켜진다.
         """
-        token = _shared_token()
+        token = _api_key()
         if not token:
             return None
         # endpoint 는 "api.vlm_serve.mai_ui.proxy_v1" 형태라 마지막 조각만 본다.

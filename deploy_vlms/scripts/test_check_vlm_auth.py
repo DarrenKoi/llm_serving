@@ -45,7 +45,7 @@ def captured(monkeypatch):
 
 
 def test_sends_bearer_token_when_key_is_configured(captured, monkeypatch):
-    monkeypatch.setenv("VLM_SERVE_UPSTREAM_API_KEY", "team-token")
+    monkeypatch.setenv("VLLM_API_KEY", "team-token")
 
     ok, reason = check_vlm.check_model("127.0.0.1", 8006, "qwen3.8-27b")
 
@@ -55,7 +55,7 @@ def test_sends_bearer_token_when_key_is_configured(captured, monkeypatch):
 
 def test_sends_no_auth_header_when_key_is_absent(captured, monkeypatch):
     """키를 안 쓰는 배포에서 헤더를 만들어 보내면 안 된다."""
-    monkeypatch.setenv("VLM_SERVE_UPSTREAM_API_KEY", "")
+    monkeypatch.setenv("VLLM_API_KEY", "")
     monkeypatch.setenv("SITE_ENV", str(_SCRIPTS / "does-not-exist.env"))
 
     ok, reason = check_vlm.check_model("127.0.0.1", 8006, "qwen3.8-27b")
@@ -67,8 +67,8 @@ def test_sends_no_auth_header_when_key_is_absent(captured, monkeypatch):
 def test_reads_key_from_site_env_when_shell_is_empty(captured, monkeypatch, tmp_path):
     """서버에는 셸 export 가 없다 - site.env 에서 읽어야 한다."""
     site_env = tmp_path / "site.env"
-    site_env.write_text("VLM_SERVE_UPSTREAM_API_KEY=from-site-env\n", encoding="utf-8")
-    monkeypatch.delenv("VLM_SERVE_UPSTREAM_API_KEY", raising=False)
+    site_env.write_text("VLLM_API_KEY=from-site-env\n", encoding="utf-8")
+    monkeypatch.delenv("VLLM_API_KEY", raising=False)
     monkeypatch.setenv("SITE_ENV", str(site_env))
 
     check_vlm.check_model("127.0.0.1", 8006, "qwen3.8-27b")

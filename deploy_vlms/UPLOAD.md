@@ -12,17 +12,17 @@ code-server 웹 드래그앤드롭이 1GB 근처에서 깨지는 것을 대체�
 ## 서버 (사내 private cloud)
 
 `flask_api` 에 이미 배선돼 있다. 앱만 띄우면 `/api/model_upload/*` 가 열린다.
+목적지 루트와 인증 키는 `deploy_vlms/config/site.env` 의 `MODEL_ROOT` · `VLLM_API_KEY` 를
+그대로 쓴다(flask_api 가 import 시점에 읽는다). 업로드 전용 설정은 따로 없다.
 
 ```bash
-MODEL_UPLOAD_ROOT=/path/to/models \
-MODEL_UPLOAD_TOKEN=<공유비밀>                              \
 python index.py     # 또는 기존 WSGI 기동 방식 그대로
 ```
 
 | env | 기본값 | 뜻 |
 |---|---|---|
-| `MODEL_UPLOAD_ROOT` | `ALLOWED_MODEL_ROOT` env, 없으면 하드코딩된 같은 경로 | 업로드 목적지 루트. **이 밖으로는 절대 쓰지 않는다** |
-| `MODEL_UPLOAD_TOKEN` | (빈값 = 인증 없음) | 설정하면 모든 업로드 요청에 `X-Upload-Token` 필요 |
+| `MODEL_ROOT` | (site.env) | 업로드 목적지 루트 = vLLM 이 읽는 루트. **이 밖으로는 절대 쓰지 않는다** |
+| `VLLM_API_KEY` | (빈값 = 인증 없음) | 설정하면 모든 업로드 요청에 `X-Upload-Token` (또는 `Authorization: Bearer`) 필요. vLLM·프록시와 같은 키 |
 | `MODEL_UPLOAD_MAX_CHUNK_MB` | 64 | 청크 하나의 상한 |
 | `MODEL_UPLOAD_ENABLED` | 1 | 0 이면 엔드포인트를 아예 등록하지 않는다 |
 
@@ -83,18 +83,17 @@ curl -s http://<서버>:<포트>/api/model_upload/health | python3 -m json.tool
 실마운트 증거이기 때문이다. `mount` 명령은 컨테이너에 없을 수 있고 `/etc/mtab` 은
 호스트 것이 섞인다.
 
-### PVC 를 쓸 때 확인할 네 가지
+### PVC 를 쓸 때 확인할 세 가지
 
-`MODEL_UPLOAD_ROOT` 를 PVC 경로로 바꾸는 것만으로는 절반이다.
+`MODEL_ROOT`(`site.env`) 를 PVC 경로로 바꾸는 것만으로는 절반이다. 업로드 목적지와 vLLM 이
+읽는 루트는 둘 다 `MODEL_ROOT` 라 설정상으로는 갈리지 않지만, 아래는 여전히 확인해야 한다.
 
-1. **`MODEL_ROOT`(`site.env`) 도 같은 PVC 를 가리켜야 한다.** 업로드 목적지와 vLLM 이
-   읽는 곳이 갈리면 이 문제가 그대로 재현된다.
-2. **AccessMode.** 업로드 pod 과 vLLM pod 이 다르면 `ReadWriteMany` 여야 한다.
+1. **AccessMode.** 업로드 pod 과 vLLM pod 이 다르면 `ReadWriteMany` 여야 한다.
    `ReadWriteOnce` 면 둘이 **같은 pod** 이어야 한다.
    `kubectl get pvc <이름> -o jsonpath='{.spec.accessModes}'`
-3. **`subPath` 를 쓰지 말 것.** 마운트 시점에 경로가 해석되어 "pod 시작 후 생긴 것이
+2. **`subPath` 를 쓰지 말 것.** 마운트 시점에 경로가 해석되어 "pod 시작 후 생긴 것이
    안 보임" 함정의 단골이다. PVC 를 통째로 마운트하고 앱이 하위 디렉토리를 쓰게 한다.
-4. **staging 은 항상 `<root>/.upload_staging` 이다** (오버라이드 없음). 같은 파일시스템이어야
+3. **staging 은 항상 `<root>/.upload_staging` 이다** (오버라이드 없음). 같은 파일시스템이어야
    `os.replace` 가 원자적이고, 다르면 `EXDEV` 로 실패하기 때문이다.
 
 용량도 미리 본다 - 27B BF16 이 ~48GB 다.
@@ -107,7 +106,7 @@ curl -s http://<서버>:<포트>/api/model_upload/health | python3 -m json.tool
 ```python
 BASE_URL = "http://<서버>"   # 이미 채워져 있다
 SRC = r"C:/models/MAI-UI-8B" # 올릴 폴더/파일
-TOKEN = ""                   # 서버가 토큰을 안 쓰면 빈 문자열
+TOKEN = ""                   # 서버 site.env 의 VLLM_API_KEY 와 같은 값. 서버가 인증을 안 쓰면 빈 문자열
 CHUNK_MB = None              # None = 기본값 32
 ```
 
@@ -125,7 +124,7 @@ python deploy_vlms/scripts/upload_model.py
 | `MODEL_UPLOAD_URL` | (필수) | Flask 서버 base URL |
 | `MODEL_UPLOAD_SRC` | (필수) | 올릴 로컬 폴더 또는 파일 |
 | `MODEL_UPLOAD_DEST` | 소스 폴더명 | 서버 루트 아래 목적지 경로 |
-| `MODEL_UPLOAD_TOKEN` | (빈값) | 서버가 요구하면 필수 |
+| `VLLM_API_KEY` | (빈값) | 서버가 요구하면 필수. 서버 site.env 와 같은 값 |
 | `MODEL_UPLOAD_CHUNK_MB` | 32 | 서버 상한보다 크면 자동으로 줄인다 |
 | `MODEL_UPLOAD_MAX_RETRIES` | 12 | 청크 하나당 재시도 한도 (지수 백오프, 최대 30s) |
 
@@ -140,7 +139,7 @@ python deploy_vlms/scripts/upload_model.py
 | 증상 | 원인 / 조치 |
 |---|---|
 | `HTTP 413` 경고 후 계속 진행 | 프록시 `client_max_body_size` 가 청크보다 작아 클라이언트가 청크를 반씩 줄인 것. 동작은 하지만 nginx 를 고치는 게 낫다 |
-| `HTTP 401` | `MODEL_UPLOAD_TOKEN` 불일치 |
+| `HTTP 401` | `VLLM_API_KEY` 불일치 (서버 site.env 와 대조) |
 | `HTTP 400 PathNotAllowed` | `MODEL_UPLOAD_DEST` 가 루트를 벗어난다 |
 | `HTTP 422` 반복 | 청크가 계속 손상돼 도착한다. 네트워크 경로를 의심 |
 | `완료 응답을 못 받았습니다` 반복 | `proxy_read_timeout` 이 재해싱 시간보다 짧다. nginx 를 못 고치면 `MAX_RETRIES` 를 더 올린다(기본 12회=~3분, 백오프 상한 30s) |

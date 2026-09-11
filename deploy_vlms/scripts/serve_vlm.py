@@ -163,7 +163,8 @@ def main() -> None:
     trust_remote_code = env("TRUST_REMOTE_CODE") or "1"
     limit_mm_per_prompt = env("LIMIT_MM_PER_PROMPT") or '{"image": 1}'
     allowed_model_root = env_required("ALLOWED_MODEL_ROOT")
-    api_key = env("API_KEY")
+    # site.env 의 팀 공용 키. common.env 에 API_KEY 줄을 따로 두지 않는다 - 두 벌은 어긋난다.
+    api_key = env("VLLM_API_KEY")
     chat_template = env("CHAT_TEMPLATE")
     if chat_template and not os.path.isabs(chat_template):
         chat_template = os.path.join(config_root, chat_template)

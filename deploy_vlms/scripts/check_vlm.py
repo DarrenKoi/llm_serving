@@ -57,7 +57,7 @@ def upstream_api_key() -> str:
     이 함수가 없으면 아래 프로브가 401 을 받고, start_all.py 는 그걸 "아직 안 떴다"로
     읽어 READY_TIMEOUT 뒤에 모델을 **중지시킨다** - 기동이 통째로 실패한다.
     """
-    shell_value = os.environ.get("VLM_SERVE_UPSTREAM_API_KEY", "").strip()
+    shell_value = os.environ.get("VLLM_API_KEY", "").strip()
     if shell_value:
         return shell_value
     site_env = Path(
@@ -66,7 +66,7 @@ def upstream_api_key() -> str:
     )
     if not site_env.is_file():
         return ""
-    return read_env_value(site_env, "VLM_SERVE_UPSTREAM_API_KEY").strip()
+    return read_env_value(site_env, "VLLM_API_KEY").strip()
 
 
 def check_model(host: str, port: int, expected_name: str) -> tuple[bool, str]:

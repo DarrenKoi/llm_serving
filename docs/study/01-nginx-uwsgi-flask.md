@@ -282,7 +282,7 @@ nginx   proxy_read_timeout 900s   ← 가장 김
 
 ```
 [팀원의 OpenAI 파이썬 클라이언트]
-   │  Authorization: Bearer <VLM_SERVE_TOKEN>
+   │  Authorization: Bearer <VLLM_API_KEY>
    ▼
 nginx  ──────────────────────────────── 인바운드 시작
    │  TLS 종료, /api/ 를 uWSGI 로
@@ -293,7 +293,7 @@ Flask: register_flask_api(app)
    │  /api → /api/vlm_serve → /api/vlm_serve/qwen3.8-27b
    │  before_request: 토큰 검사 (compare_digest)
    │  _build_upstream_headers(): 클라이언트 Authorization 을 **삭제**하고
-   │                             upstream 용 API_KEY 를 새로 주입
+   │                             Bearer $VLLM_API_KEY 를 새로 주입
    ▼  ──────────────────────────────── 아웃바운드 시작
 requests.post("http://127.0.0.1:8006/v1/chat/completions", timeout=(5, 300))
    ▼
@@ -302,9 +302,10 @@ vLLM (별개 프로세스. Flask 와 코드를 한 줄도 공유하지 않는다
 
 Authorization 헤더를 지웠다 다시 넣는 부분이 인바운드/아웃바운드 구분의
 좋은 예다. 클라이언트가 보낸 `Authorization` 은 **이 프록시에게 온 인바운드
-자격증명**이지, vLLM 에게 갈 것이 아니다. 그대로 흘려보내면 vLLM 이
-`API_KEY` 를 켰을 때 엉뚱한 키가 도착해 401 이 난다. 그래서 지우고
-아웃바운드용 키를 따로 채운다.
+자격증명**이지, vLLM 에게 갈 것이 아니다. 지금은 두 쪽이 같은 `VLLM_API_KEY`
+를 쓰지만, 검사가 끝난 인바운드 헤더는 지우고 아웃바운드용 헤더를 프록시가 직접
+만든다. 호출자가 `X-VLM-Token` 으로 왔더라도 vLLM 에는 항상 같은 형태의 키가
+도착한다.
 
 ---
 
