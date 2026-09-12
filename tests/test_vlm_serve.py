@@ -8,7 +8,7 @@ from typing import Any
 
 import pytest
 from flask import Flask
-from requests import RequestException
+from requests import ReadTimeout, RequestException
 
 from flask_api import register_flask_api
 import flask_api.vlm_serve as vlm_serve
@@ -188,6 +188,36 @@ def test_chat_proxy_injects_upstream_api_key(monkeypatch):
     assert captured["headers"]["Authorization"] == "Bearer internal-key"
 
 
+def test_reasoning_knobs_reach_upstream_untouched(monkeypatch):
+    """chat_template_kwargs / thinking_token_budget 가 body 그대로 업스트림에 도착한다.
+
+    effort · thinking 조절은 프록시가 body 를 손대지 않는 덕분에 동작한다. force_stream
+    같은 body 조작을 다시 넣으면 이 테스트가 깨진다 - 그게 이 테스트의 목적이다.
+    """
+    captured: dict[str, Any] = {}
+
+    def fake_request(**kwargs):
+        captured.update(kwargs)
+        return DummyResponse(status_code=200, body=b'{"choices": []}')
+
+    monkeypatch.setattr("flask_api.vlm_serve.service_template.requests.request", fake_request)
+    monkeypatch.delenv("VLLM_API_KEY", raising=False)
+
+    sent = {
+        "model": "qwen3.8-27b",
+        "messages": [{"role": "user", "content": "ping"}],
+        "stream": False,
+        "chat_template_kwargs": {"enable_thinking": True, "reasoning_effort": "xhigh"},
+        "thinking_token_budget": 4096,
+    }
+    response = _create_test_app().test_client().post(
+        "/api/vlm_serve/qwen3.8-27b/v1/chat/completions", json=sent
+    )
+
+    assert response.status_code == 200
+    assert json.loads(captured["data"]) == sent
+
+
 def test_chat_proxy_logs_request_and_response_details(monkeypatch, caplog):
     def fake_request(**kwargs):
         return DummyResponse(
@@ -227,6 +257,26 @@ def test_chat_proxy_logs_request_and_response_details(monkeypatch, caplog):
     assert "request service=mai-ui method=POST" in log_text
     assert "response service=mai-ui" in log_text
     assert "Bearer internal-key" not in log_text
+
+
+def test_upstream_timeout_is_504_not_502(monkeypatch):
+    """느린 thinking 요청은 504(Gateway Timeout)로 나가야 한다.
+
+    502 로 뭉치면 코딩 하네스가 "업스트림이 죽었다"로 읽고 재시도하지 않는다. 504 여야
+    "아직 일하는 중"이라는 신호가 되고, hint 가 stream=true 를 알려 준다.
+    """
+    def fake_request(**kwargs):
+        raise ReadTimeout("HTTPConnectionPool: Read timed out. (read timeout=300.0)")
+
+    monkeypatch.setattr("flask_api.vlm_serve.service_template.requests.request", fake_request)
+
+    response = _create_test_app().test_client().post(
+        "/api/vlm_serve/qwen3.8-27b/v1/chat/completions",
+        json={"model": "qwen3.8-27b", "messages": [{"role": "user", "content": "ping"}]},
+    )
+
+    assert response.status_code == 504
+    assert "stream=true" in response.get_json()["hint"]
 
 
 def test_chat_proxy_logs_upstream_request_exception(monkeypatch, caplog):

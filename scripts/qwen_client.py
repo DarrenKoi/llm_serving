@@ -18,10 +18,13 @@
                             --allowed-local-media-path 가 없어 거절된다. 서버 한도는 요청당 2장
                             (qwen3.8-27b.env 의 LIMIT_MM_PER_PROMPT).
 
-프록시(/api/vlm_serve/qwen3.8-27b) 대신 vLLM 에 직접 붙는 이유는 check_kv_longctx.py 와
-같다 - 프록시는 응답을 끝까지 버퍼링하고 read timeout 300s 라, xhigh 로 몇 분씩
-생각하는 요청이 HTTP 경로 때문에 끊긴다. 프록시로 가려면 BASE_URL 을
-http://<flask>/api/vlm_serve/qwen3.8-27b 로 바꾼다. 키는 같은 VLLM_API_KEY 그대로다.
+프록시(/api/vlm_serve/qwen3.8-27b)로 가려면 BASE_URL 을
+http://<flask>/api/vlm_serve/qwen3.8-27b 로 바꾸는 것으로 끝이다 - 위의 knob 들은
+프록시가 body 를 손대지 않으므로 그대로 통한다(tests/test_vlm_serve.py 가 지킨다).
+단 **stream=True 로 보내라.** SSE 는 청크 단위로 relay 되지만(청크 사이 간격에만
+timeout 이 걸린다) non-stream 은 끝까지 버퍼링되므로 VLM_SERVE_READ_TIMEOUT_SEC(300s)
+안에 못 끝내는 xhigh 요청이 HTTP 경로에서 끊긴다. 기본값 8006 직결은 그 제약이
+없어서 유지한다 (check_kv_longctx.py 와 같은 이유). 키는 같은 VLLM_API_KEY 그대로다.
 """
 
 import base64

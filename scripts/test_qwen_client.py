@@ -60,3 +60,28 @@ def test_user_message_embeds_images_as_base64_data_urls(tmp_path):
     odd = tmp_path / "b.unknownext"
     odd.write_bytes(b"")
     assert image_part(odd)["image_url"]["url"].startswith("data:image/png;base64,")  # 확장자 모르면 png
+
+
+def test_proxy_example_rebinds_base_url_so_requests_go_through_the_proxy(monkeypatch):
+    """proxy_example 의 "한 줄만 바꾼다" 주장이 실제로 _open 까지 닿는지.
+
+    qwen_client.BASE_URL 을 모듈 속성으로 덮어쓰는 방식이라, _open 이 그 값을 호출 시점에
+    읽지 않으면(예: from-import 로 값을 복사해 두면) 조용히 8006 직결로 나간다.
+    """
+    import qwen_client
+    import proxy_example
+
+    seen: dict[str, str] = {}
+
+    def fake_urlopen(request, timeout=None):
+        seen["url"] = request.full_url
+        # step 1 이 잡는 예외로 끊는다 - main() 이 뒤 step 으로 넘어가지 않고 돌아온다.
+        raise qwen_client.urllib.error.URLError("stop here - 주소만 확인한다")
+
+    monkeypatch.setattr(qwen_client.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(proxy_example, "PROXY_BASE_URL", "http://flask.example/api/vlm_serve/qwen3.8-27b")
+    monkeypatch.setattr(qwen_client, "BASE_URL", "http://127.0.0.1:8006")
+
+    proxy_example.main()
+
+    assert seen["url"] == "http://flask.example/api/vlm_serve/qwen3.8-27b/v1/models"

@@ -185,21 +185,35 @@ def _proxy_request(config: VLMServiceConfig, upstream_path: str):
             stream=True,
         )
     except requests.RequestException as exc:
+        # Timeout 은 504, 그 외는 502 로 가른다. 호출자(코딩 하네스)에게 이 구분이 전부다 -
+        # 502 는 "업스트림이 죽었다"라 보통 재시도하지 않고, 504 는 "아직 일하는 중인데 내가
+        # 못 기다렸다"라 재시도·설정 조정의 신호다. 둘을 502 로 뭉치면 느린 thinking 요청이
+        # 모델이 죽은 것처럼 보고된다.
+        is_timeout = isinstance(exc, requests.Timeout)
         logger.exception(
-            "upstream failed service=%s upstream_url=%s elapsed_ms=%.1f error=%s",
+            "upstream failed service=%s upstream_url=%s elapsed_ms=%.1f timeout=%s error=%s",
             config.route_slug,
             upstream_url,
             (time.monotonic() - start_time) * 1000,
+            is_timeout,
             exc,
         )
-        return jsonify(
-            {
-                "service": config.route_slug,
-                "status": "error",
-                "message": str(exc),
-                "upstream_url": upstream_url,
-            }
-        ), 502
+        payload = {
+            "service": config.route_slug,
+            "status": "error",
+            "message": str(exc),
+            "upstream_url": upstream_url,
+        }
+        if is_timeout:
+            # non-stream 요청은 vLLM 이 완성 전까지 헤더조차 안 보내므로 read timeout 이
+            # "첫 바이트까지"에 걸린다. 해결은 stream=true 다 (청크 사이 간격에만 걸린다).
+            payload["hint"] = (
+                "Send stream=true so the read timeout applies between chunks instead of to the "
+                "whole completion, or lower chat_template_kwargs.reasoning_effort / set "
+                f"thinking_token_budget. Current read timeout: {_upstream_timeout()[1]}s "
+                "(VLM_SERVE_READ_TIMEOUT_SEC)."
+            )
+        return jsonify(payload), 504 if is_timeout else 502
 
     response_headers = _build_response_headers(upstream_response.headers)
     is_sse = upstream_response.headers.get("Content-Type", "").startswith("text/event-stream")

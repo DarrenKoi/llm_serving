@@ -10,12 +10,14 @@ stdlib 만 쓰고 `qwen_client.py` 하나를 공유한다. CLI 인자는 없다 
 | `stream_thinking.py` | 프롬프트 하나를 스트리밍 - 사고와 답이 갈리는 순간, TTFT | 1분 |
 | `thinking_budget.py` | `thinking_token_budget` 이 먹는지, 어디서 품질이 꺾이는지 | 5분 |
 | `check_tool_call.py` | template 의 도구 호출 형식 + tools 요청 하나가 tool_calls 로 파싱되는지 (RED/GREEN) | 10초 |
+| `proxy_example.py` | 같은 knob 들을 **프록시 경유**(`/api/vlm_serve/...`)로 조작하는 실행 예제 | 2-5분 |
 
 ```bash
 python scripts/effort_ladder.py     # 먼저 이걸로 "어느 단계가 기본값이면 되는지" 정한다
 python scripts/stream_thinking.py
 python scripts/thinking_budget.py
 python scripts/check_tool_call.py    # 도구 호출이 파서에서 새면 여기서 RED
+python scripts/proxy_example.py      # PROXY_BASE_URL 을 자기 Flask 주소로 고친 뒤
 pytest scripts/                     # 서버 없이 요청 조립·응답 해석만 검증
 ```
 
@@ -94,13 +96,9 @@ reply = chat([user_message("두 화면의 차이를 설명해라.", "before.png"
   `chat_template_kwargs.preserve_thinking=false`.
 - **`usage` 에 사고 토큰이 따로 없다.** 스크립트는 `/tokenize` 로 `reasoning` 문자열을
   다시 세서 사고/답을 나눈다.
-- **프록시 대신 vLLM 에 직접 붙는다**(`127.0.0.1:8006`, 다른 장비에선 `<사내IP>:8006`).
+- **스크립트 기본값은 vLLM 직결이다**(`127.0.0.1:8006`, 다른 장비에선 `<사내IP>:8006`).
   `common.env` 의 `HOST=0.0.0.0` 이라 사내에서 바로 닿고, `site.env` 의 `VLLM_API_KEY` 가
-  채워져 있으면 그 키가 필요하다. `/api/vlm_serve/...` 는 스트리밍이 아닌 응답을
-  끝까지 버퍼링하고 read timeout 이 300s 라, `stream=False` 로 xhigh 를 몇 분씩 생각시키면
-  HTTP 경로 때문에 끊긴다(스트리밍은 청크 단위로 흘러서 괜찮다 - 아래 하네스 절).
-  프록시로 가려면 `BASE_URL` 을 `http://<flask>/api/vlm_serve/qwen3.8-27b`
-  로 바꾼다. 키(`API_KEY`)는 같은 `VLLM_API_KEY` 그대로다.
+  채워져 있으면 그 키가 필요하다. 프록시 경유는 아래 절을 보라 - knob 은 그대로 통한다.
 - **tool calling** 은 이미 켜져 있다 - `EXTRA_VLLM_ARGS` 의 `--enable-auto-tool-choice
   --tool-call-parser qwen3_xml`. template 의 tool 포맷이 `<tool_call><function=…><parameter=…>`
   라 XML 파서여야 한다(`hermes` 는 JSON 전용이라 못 쓴다). 코딩 하네스는 전부 이걸 쓴다.
@@ -108,6 +106,75 @@ reply = chat([user_message("두 화면의 차이를 설명해라.", "before.png"
   {"max_position_embeddings": 1010000}}'` 로 열린다. fp8 KV 기준 시퀀스당 32GiB 라
   `MAX_NUM_SEQS` 를 2 이하로 내려야 하고, `check_kv_longctx.py` 를 그 길이로 다시 돌려야
   한다. 필요가 생기기 전엔 262144 로 둔다.
+
+## 프록시 경유 (`/api/vlm_serve/qwen3.8-27b`)
+
+**위의 레버 세 개가 그대로 통한다.** 프록시는 요청 body 를 파싱하지도 재직렬화하지도 않고
+그대로 넘긴다(`flask_api/vlm_serve/service_template.py:_proxy_request`) - knob 의 위치·이름·
+함정이 직결과 1:1 이다. 이 계약은
+`tests/test_vlm_serve.py::test_reasoning_knobs_reach_upstream_untouched` 가 지킨다.
+바꿀 것은 주소 하나뿐이고, 키는 같은 `VLLM_API_KEY` 다.
+
+**직결과 다른 점은 하나뿐: 긴 요청은 `stream=True` 로 보내라.** SSE 는 청크 단위로 relay 되어
+read timeout 이 청크 사이 간격에만 걸리지만, non-stream 은 끝까지 버퍼링되므로
+`VLM_SERVE_READ_TIMEOUT_SEC`(300s) 안에 못 끝내는 xhigh 요청이 답과 무관하게 HTTP 경로에서
+끊긴다. 끊기면 **504**(+ `hint` 필드)가 나온다 - 502 가 아니다. 하네스가 "업스트림 죽음"으로
+읽고 재시도를 포기하지 않게 하려는 구분이다.
+
+타임아웃은 밖에서 안으로 좁아진다: nginx `proxy_read_timeout`(900s) > `harakiri`(870) >
+`VLM_SERVE_READ_TIMEOUT_SEC`(300). 300s 를 올릴 수 있는 실질 상한은 **870s** 이고, 이 순서가
+뒤집히면 앱은 성공했는데 호출자는 504 를 본다. 다만 올리기 전에 `stream=true` 를 먼저 보라 -
+스트리밍은 청크 사이 간격에만 걸려서 이 상한 자체가 무의미해진다.
+
+`python scripts/proxy_example.py` 가 step 1~5 로 이걸 전부 실행해 본다 (도달·인증 → instruct →
+effort 3단계 스트리밍 → budget → top-level `reasoning_effort` 함정이 400 으로 돌아오는지).
+`PROXY_BASE_URL` 만 자기 Flask 주소로 고치면 된다.
+
+```python
+# qwen_client 를 쓰는 경우 - 바꾸는 줄은 이거 하나다
+import qwen_client
+qwen_client.BASE_URL = "http://<flask>/api/vlm_serve/qwen3.8-27b"
+```
+
+```python
+# OpenAI SDK
+from openai import OpenAI
+
+client = OpenAI(base_url="http://<flask>/api/vlm_serve/qwen3.8-27b/v1", api_key=VLLM_API_KEY)
+stream = client.chat.completions.create(
+    model="qwen3.8-27b",
+    messages=[{"role": "user", "content": "..."}],
+    stream=True,                      # 프록시 경유에서 긴 요청은 필수
+    max_tokens=16384,
+    extra_body={
+        "chat_template_kwargs": {"enable_thinking": True, "reasoning_effort": "xhigh"},
+        "thinking_token_budget": 8192,
+    },
+)
+for chunk in stream:
+    delta = chunk.choices[0].delta
+    print(getattr(delta, "reasoning", None) or delta.content or "", end="", flush=True)
+```
+
+```bash
+# curl - X-VLM-Token 도 받는다 (프록시가 업스트림에는 Bearer 로 바꿔 싣는다)
+curl -N http://<flask>/api/vlm_serve/qwen3.8-27b/v1/chat/completions \
+  -H "X-VLM-Token: $VLLM_API_KEY" -H 'Content-Type: application/json' \
+  -d '{"model":"qwen3.8-27b","stream":true,"max_tokens":4096,
+       "messages":[{"role":"user","content":"9.11 과 9.8 중 어느 수가 더 큰가?"}],
+       "chat_template_kwargs":{"enable_thinking":true,"reasoning_effort":"low"}}'
+```
+
+**모델별 차이는 사실상 없다 - reasoning knob 이 있는 모델이 하나뿐이다.**
+
+| 프록시 경로 | reasoning knob |
+|---|---|
+| `/api/vlm_serve/qwen3.8-27b` | `enable_thinking` · `reasoning_effort` · `thinking_token_budget` |
+| `/api/vlm_serve/mai-ui` | 없음 - grounding 모델, `--reasoning-parser` 가 안 붙어 있다 |
+| `/api/vlm_serve/paddleocr-vl-1.5` | 없음 - OCR 모델 |
+
+그래서 프록시에 모델별 분기 코드는 없다. reasoning 모델이 둘 이상 되고 knob 위치가 실제로
+갈리는 날 넣으면 된다.
 
 ## 코딩 하네스 붙이기 (opencode · pi)
 
