@@ -8,7 +8,7 @@ import hashlib
 import json
 import os
 import re
-from dataclasses import dataclass, replace
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import IO
 
@@ -239,15 +239,7 @@ class UploadStore:
     def _write_state(self, session: UploadSession) -> None:
         """세션 상태를 디스크에 기록한다."""
         self.staging_root.mkdir(parents=True, exist_ok=True)
-        payload = {
-            "upload_id": session.upload_id,
-            "rel_path": session.rel_path,
-            "size": session.size,
-            "sha256": session.sha256,
-            "chunk_size": session.chunk_size,
-            "committed_offset": session.committed_offset,
-            "completed": session.completed,
-        }
+        payload = asdict(session)
         self._state_path(session.upload_id).write_text(
             json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
         )

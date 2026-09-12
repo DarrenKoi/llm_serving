@@ -6,6 +6,8 @@
 
 import hashlib
 import io
+import json
+from dataclasses import fields
 
 import pytest
 
@@ -42,6 +44,9 @@ def test_begin_creates_new_session_at_offset_zero(store):
     assert session.upload_id
     assert session.committed_offset == 0
     assert session.completed is False
+    payload = json.loads(store._state_path(session.upload_id).read_text(encoding="utf-8"))
+    assert set(payload) == {field.name for field in fields(session)}
+    assert store.status(session.upload_id) == session
 
 
 def _sha(data: bytes) -> str:

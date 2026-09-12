@@ -163,7 +163,6 @@ def find_vllm_processes() -> list[dict]:
                 "pid": pid,
                 "port": port,
                 "served_model_name": served_name,
-                "cmdline": cmdline.strip(),
             })
     return results
 
@@ -186,22 +185,12 @@ def build_process_record(
     pid: int,
     port: str = "",
     served_model_name: str = "",
-    cmdline: str = "",
 ) -> dict:
     return {
         "pid": pid,
         "port": port,
         "served_model_name": served_model_name,
-        "cmdline": cmdline,
     }
-
-
-def get_cmdline_for_pid(pid: int) -> str:
-    try:
-        cmdline_raw = (Path("/proc") / str(pid) / "cmdline").read_bytes()
-    except OSError:
-        return ""
-    return " ".join(part for part in cmdline_raw.decode("utf-8", errors="replace").split("\0") if part)
 
 
 def read_live_pid_from_file(instance: str) -> int | None:
@@ -382,7 +371,6 @@ def collect_targets(processes: list[dict], instance: str, port: str) -> list[dic
             pid=pid,
             port=port,
             served_model_name=served_name,
-            cmdline=get_cmdline_for_pid(pid),
         )
 
     for proc in processes:
@@ -396,7 +384,6 @@ def collect_targets(processes: list[dict], instance: str, port: str) -> list[dic
                 pid=pid,
                 port=port,
                 served_model_name=served_name,
-                cmdline=get_cmdline_for_pid(pid),
             ),
         )
 

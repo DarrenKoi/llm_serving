@@ -37,6 +37,7 @@ from pathlib import Path
 
 from check_vlm import check_model
 from start_model import rotate_log, stop_if_already_running
+from stop_model import read_env_value
 
 
 STARTUP_POLL_SEC = 2.0
@@ -65,25 +66,6 @@ def warn(msg: str) -> None:
 def fail(msg: str) -> None:
     print(f"[ERROR] {msg}", file=sys.stderr)
     sys.exit(1)
-
-
-def read_env_value(path: Path, key: str) -> str:
-    """env 파일에서 특정 키 값을 읽는다."""
-    if not path.is_file():
-        return ""
-    with path.open("r", encoding="utf-8") as f:
-        for raw_line in f:
-            line = raw_line.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            current_key, _, value = line.partition("=")
-            if current_key.strip() != key:
-                continue
-            value = value.strip()
-            if len(value) >= 2 and value[0] == value[-1] and value[0] in ('"', "'"):
-                value = value[1:-1]
-            return value
-    return ""
 
 
 def print_gpu_plan(config_root: Path) -> None:
